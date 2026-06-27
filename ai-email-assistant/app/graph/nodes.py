@@ -4,6 +4,9 @@ import re
 import time
 
 import httpx
+from azure.ai.inference import ChatCompletionsClient
+from azure.ai.inference.models import UserMessage
+from azure.core.credentials import AzureKeyCredential
 
 from app.config import settings
 from app.graph.prompts import (
@@ -34,50 +37,82 @@ def _strip_code_fence(text: str) -> str:
     return _CODE_FENCE_RE.sub("", text.strip()).strip()
 
 
-def _chat(prompt: str) -> str:
-    """Calls Gemini's generateContent endpoint directly via HTTP.
+_github_client = None
 
-    We don't use the google-genai SDK here on purpose: a plain HTTP call is
-    explicit and easy to debug, and it's one less moving part to misconfigure.
+
+def _get_github_client() -> ChatCompletionsClient:
+    # Built lazily (not at import time) so importing this module doesn't
+    # require GITHUB_TOKEN to be set when Gemini is the active provider.
+    global _github_client
+    if _github_client is None:
+        _github_client = ChatCompletionsClient(
+            endpoint=settings.github_endpoint,
+            credential=AzureKeyCredential(settings.github_token),
+        )
+    return _github_client
+
+
+def _chat_github(prompt: str) -> str:
+    response = _get_github_client().complete(
+        messages=[UserMessage(content=prompt)],
+        model=settings.chat_model,
+        temperature=0.3,
+    )
+    return response.choices[0].message.content.strip()
+
+
+def _chat_gemini(prompt: str) -> str:
+    response = httpx.post(
+        f"{settings.gemini_base_url}/{settings.chat_model}:generateContent",
+        headers={
+            "x-goog-api-key": settings.gemini_api_key,
+            "Content-Type": "application/json",
+        },
+        json={
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.3},
+        },
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        logger.error("Gemini API error %s: %s", response.status_code, response.text)
+    response.raise_for_status()
+    return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
+def _chat(prompt: str) -> str:
+    """Calls whichever LLM provider is configured (GitHub Models takes
+    priority over Gemini if both are set - see app/config.py).
+
+    GitHub Models uses the Azure AI Inference SDK (raw HTTP to that endpoint
+    wasn't reliable); Gemini uses a plain HTTP call since its REST API is
+    simple enough not to need a client library.
     """
-    # response = httpx.post(
-    #     f"{settings.gemini_base_url}/{settings.chat_model}:generateContent",
-    #     headers={
-    #         "x-goog-api-key": settings.gemini_api_key,
-    #         "Content-Type": "application/json",
-    #     },
-    #     json={
-    #         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-    #         "generationConfig": {"temperature": 0.3},
-    #     },
-    #     timeout=30,
-    # )
-    # if response.status_code >= 400:
-    #     logger.error("Gemini API error %s: %s", response.status_code, response.text)
-    # response.raise_for_status()
-    return "Good" #response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    if settings.llm_provider == "github":
+        return _chat_github(prompt)
+    return _chat_gemini(prompt)
 
 
 def summarize(state: EmailState) -> dict:
-    # start = time.perf_counter()
-    # summary = _chat(SUMMARIZE_PROMPT.format(subject=state["subject"], body=state["body"]))
-    # logger.info(
-    #     "[email %s] summarize done in %.2fs -> %s",
-    #     state.get("email_id"), time.perf_counter() - start, _short(summary),
-    # )
-    return {"summary": "fine"} #"summary}
+    start = time.perf_counter()
+    summary = _chat(SUMMARIZE_PROMPT.format(subject=state["subject"], body=state["body"]))
+    logger.info(
+        "[email %s] summarize done in %.2fs -> %s",
+        state.get("email_id"), time.perf_counter() - start, _short(summary),
+    )
+    return {"summary": summary}
 
 
 def classify(state: EmailState) -> dict:
-    # start = time.perf_counter()
-    # category = _chat(
-    #     CLASSIFY_PROMPT.format(subject=state["subject"], summary=state["summary"])
-    # ).lower()
-    # logger.info(
-    #     "[email %s] classify done in %.2fs -> %s",
-    #     state.get("email_id"), time.perf_counter() - start, category,
-    # )
-    return {"category": "nice"}#category}
+    start = time.perf_counter()
+    category = _chat(
+        CLASSIFY_PROMPT.format(subject=state["subject"], summary=state["summary"])
+    ).lower()
+    logger.info(
+        "[email %s] classify done in %.2fs -> %s",
+        state.get("email_id"), time.perf_counter() - start, category,
+    )
+    return {"category": category}
 
 
 def retrieve(state: EmailState) -> dict:
