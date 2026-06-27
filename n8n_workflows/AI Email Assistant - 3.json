@@ -1,0 +1,327 @@
+{
+  "name": "AI Email Assistant - 1. New email to draft",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "is:unread -label:ai-assistant-handled"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "89097147-35be-4a27-b85a-cf83824b7493",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "MTXTQF7zvEXAptel",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://127.0.0.1:8000/email",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sender\": {{ JSON.stringify($json.from.value[0].address) }},\n  \"subject\": {{ JSON.stringify($json.subject) }},\n  \"body\": {{ JSON.stringify($json.text || $json.snippet) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        240,
+        0
+      ],
+      "id": "e49c452a-d40e-4bed-b718-ee94e8a89bdb",
+      "name": "Call FastAPI - Generate Draft",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "TOHb5gtGbJGkI8It",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($env.TELEGRAM_CHAT_ID) }},\n  \"text\": {{ JSON.stringify(\n      \"Nuova email\\n\\n\" +\n      \"Da: \" + $('Gmail Trigger').item.json.from + \"\\n\" +\n      \"Oggetto: \" + $('Gmail Trigger').item.json.subject + \"\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\" +\n      \"Riassunto: \" + $json.summary + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"❌ Reject\", \"callback_data\": \"{{ $json.id }}:reject\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        0
+      ],
+      "id": "51d7b6ab-8c30-4b7d-88ea-0b7cf947d5e4",
+      "name": "Send Telegram Approval Message"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        336
+      ],
+      "id": "c3c34c97-2cab-4aef-8822-9967f6669c2b",
+      "name": "Schedule Trigger1"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates?offset=-1&limit=1&allowed_updates=%5B%22message%22%2C%20%22callback_query%22%5D",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        336
+      ],
+      "id": "578cd3de-31de-439a-ac50-bf01d3ced7fe",
+      "name": "Get Telegram Updates1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keeps track of the last processed update_id across executions,\n// the same way the original workflow did, but here we keep every\n// new update (not just the last one) so quick double-taps on the\n// Telegram buttons aren't dropped between polls.\nconst staticData = $getWorkflowStaticData('global');\nconst items = $input.all();\n\nif (items.length === 0 || !items[0].json.result) {\n  return [];\n}\n\nconst updates = items[0].json.result;\nconst lastId = staticData.lastUpdateId || 0;\n\nconst newUpdates = updates.filter((u) => u.update_id > lastId);\nif (newUpdates.length === 0) {\n  return [];\n}\n\nstaticData.lastUpdateId = Math.max(...updates.map((u) => u.update_id));\n\n// One item per update, so the next node can filter button presses\n// (callback_query) and ignore plain text messages.\nreturn newUpdates.map((u) => ({ json: u }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        336
+      ],
+      "id": "6277f0ea-94aa-4934-befb-974564a226f8",
+      "name": "Filter New Updates1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0848f644-3a03-456b-8b02-45bee3e649fd",
+              "leftValue": "={{ $json.callback_query?.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        336
+      ],
+      "id": "380883a8-e59e-4a53-9185-9217c9caa27d",
+      "name": "Has Callback Query1"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/answerCallbackQuery?callback_query_id={{ $json.callback_query.id }}&text=Ricevuto",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        256
+      ],
+      "id": "062c9005-7b30-4865-8e96-eefd6bd02192",
+      "name": "Answer Callback Query1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://127.0.0.1:8000/approve",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"id\": {{ $('Filter New Updates1').item.json.callback_query.data.split(':')[0] }},\n  \"action\": {{ JSON.stringify($('Filter New Updates1').item.json.callback_query.data.split(':')[1]) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        256
+      ],
+      "id": "04acea25-c125-425c-8343-00c31840100b",
+      "name": "Call FastAPI - Approve1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "TOHb5gtGbJGkI8It",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Filter New Updates1').item.json.callback_query.message.chat.id }}",
+        "text": "={{ $json.status === 'sent' ? '✅ Email inviata.' : $json.status === 'rejected' ? '❌ Bozza rifiutata.' : 'Nuova bozza generata:\\n\\n' + $json.draft }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        256
+      ],
+      "id": "a029a87d-1c66-4ef2-9b42-97eaf000845a",
+      "name": "Send Confirmation1",
+      "webhookId": "16123c47-4fd8-47d3-ac05-677b7569f0c3",
+      "credentials": {
+        "telegramApi": {
+          "id": "8EiuVyHAME8bxi3U",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Call FastAPI - Generate Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call FastAPI - Generate Draft": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Approval Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Get Telegram Updates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Telegram Updates1": {
+      "main": [
+        [
+          {
+            "node": "Filter New Updates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New Updates1": {
+      "main": [
+        [
+          {
+            "node": "Has Callback Query1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Callback Query1": {
+      "main": [
+        [
+          {
+            "node": "Answer Callback Query1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Callback Query1": {
+      "main": [
+        [
+          {
+            "node": "Call FastAPI - Approve1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call FastAPI - Approve1": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "cf6aca4c-3247-4425-abf8-084ade156016",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e4bf7b78ad1676b28e69fb9b183f67ef09ab6a046ab0d71c61344f673a96b25d"
+  },
+  "nodeGroups": [],
+  "id": "pHN2M5tOJadwgFTH",
+  "tags": []
+}

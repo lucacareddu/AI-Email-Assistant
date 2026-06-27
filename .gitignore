@@ -1,0 +1,10 @@
+.env
+test_githubmodels.py
+test_postgres.py
+refresh_token.py
+.venv
+node_modules
+package*
+*.pdf
+chroma_db
+__pycache__
