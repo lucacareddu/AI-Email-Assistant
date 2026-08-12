@@ -1,0 +1,93 @@
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from app.api.main import app
+from app.services.database import create_email
+
+HEADERS = {"X-Webhook-Token": "test-webhook-token"}
+
+
+def test_approve_rejects_wrong_token():
+    with TestClient(app) as client:
+        r = client.post(
+            "/approve", json={"id": 1, "action": "reject"},
+            headers={"X-Webhook-Token": "wrong"},
+        )
+        assert r.status_code == 401
+
+
+def test_approve_unknown_id_returns_404():
+    with TestClient(app) as client:
+        r = client.post("/approve", json={"id": 999999, "action": "reject"}, headers=HEADERS)
+        assert r.status_code == 404
+
+
+def test_email_invalid_body_returns_422():
+    with TestClient(app) as client:
+        r = client.post("/email", json={"sender": "a@b.com"}, headers=HEADERS)  # missing subject/body
+        assert r.status_code == 422
+
+
+def test_email_happy_path_with_mocked_graph():
+    fake_result = {"summary": "s", "category": "support", "draft": "d", "review_notes": ""}
+    with TestClient(app) as client, patch("app.api.main.email_graph.invoke", return_value=fake_result):
+        r = client.post(
+            "/email", json={"sender": "a@b.com", "subject": "hi", "body": "hello"}, headers=HEADERS,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["draft"] == "d"
+        assert body["status"] == "pending"
+
+
+def test_approve_action_sends_via_gmail_and_marks_sent():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+
+    with TestClient(app) as client, patch("app.api.main.send_reply") as mock_send:
+        r = client.post(
+            "/approve", json={"id": record["id"], "action": "approve"}, headers=HEADERS,
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "sent"
+        mock_send.assert_called_once()
+
+
+def test_approve_action_rejects_and_marks_rejected():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/approve", json={"id": record["id"], "action": "reject"}, headers=HEADERS,
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "rejected"
+
+
+def test_approve_action_regenerates_with_mocked_graph():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+    fake_result = {"draft": "new draft", "category": "support"}
+
+    with TestClient(app) as client, patch("app.api.main.email_graph.invoke", return_value=fake_result):
+        r = client.post(
+            "/approve", json={"id": record["id"], "action": "regenerate"}, headers=HEADERS,
+        )
+        assert r.status_code == 200
+        assert r.json()["draft"] == "new draft"
+
+
+def test_approve_unknown_action_returns_400():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/approve", json={"id": record["id"], "action": "not-a-real-action"}, headers=HEADERS,
+        )
+        assert r.status_code == 400
+
+
+def test_health_check():
+    with TestClient(app) as client:
+        r = client.get("/health")
+        assert r.status_code == 200
+        assert r.json() == {"status": "ok"}

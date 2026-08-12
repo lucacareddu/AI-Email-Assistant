@@ -1,13 +1,42 @@
-version: "3.9"
-
 services:
+  app:
+    build:
+      context: ./ai-email-assistant
+    container_name: app
+    env_file:
+      - ./ai-email-assistant/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai-email-assistant/documents:/app/documents
+      - chroma_data:/app/chroma_db
+    restart: unless-stopped
+
   postgres:
     image: postgres
     container_name: postgres
+    profiles: ["postgres"]
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: email_assistant
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    profiles: ["redis"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:

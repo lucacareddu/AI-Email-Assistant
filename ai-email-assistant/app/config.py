@@ -50,6 +50,13 @@ class Settings:
     use_postgres: bool = os.environ.get("USE_POSTGRES", "true").lower() == "true"
     database_url: str = _require("DATABASE_URL") if use_postgres else ""
 
+    # --- Redis (set USE_REDIS=false to use an in-memory cache instead - no
+    # Redis needed, but the cache is lost on restart / not shared across
+    # processes). Used to cache embeddings, so re-ingesting unchanged
+    # document chunks doesn't re-call the embeddings API for them.
+    use_redis: bool = os.environ.get("USE_REDIS", "true").lower() == "true"
+    redis_url: str = _require("REDIS_URL") if use_redis else ""
+
     # --- Gmail API (direct send of the approved reply via OAuth2 refresh token) ---
     gmail_client_id: str = _require("GMAIL_CLIENT_ID")
     gmail_client_secret: str = _require("GMAIL_CLIENT_SECRET")

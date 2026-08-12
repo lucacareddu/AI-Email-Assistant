@@ -1,3 +1,4 @@
+import json
 import logging
 
 import httpx
@@ -5,6 +6,7 @@ from azure.ai.inference import EmbeddingsClient
 from azure.core.credentials import AzureKeyCredential
 
 from app.config import settings
+from app.services import cache
 
 logger = logging.getLogger("graph")
 
@@ -50,7 +52,30 @@ def _embed_gemini(texts: list[str]) -> list[list[float]]:
 
 def embed(texts: list[str]) -> list[list[float]]:
     """Embeds via whichever LLM provider is configured (GitHub Models takes
-    priority over Gemini if both are set - see app/config.py)."""
-    if settings.llm_provider == "github":
-        return _embed_github(texts)
-    return _embed_gemini(texts)
+    priority over Gemini if both are set - see app/config.py).
+
+    Results are cached (Redis or in-memory, see app/services/cache.py) keyed
+    by text+model, so re-ingesting unchanged document chunks doesn't re-call
+    the embeddings API for them.
+    """
+    keys = [cache.embedding_cache_key(text, settings.embedding_model) for text in texts]
+    cached_values = [cache.cache_get(key) for key in keys]
+
+    missing_idx = [i for i, value in enumerate(cached_values) if value is None]
+    if missing_idx:
+        missing_texts = [texts[i] for i in missing_idx]
+        fresh = (
+            _embed_github(missing_texts)
+            if settings.llm_provider == "github"
+            else _embed_gemini(missing_texts)
+        )
+        for idx, vector in zip(missing_idx, fresh):
+            serialized = json.dumps(vector)
+            cache.cache_set(keys[idx], serialized)
+            cached_values[idx] = serialized
+
+    logger.info(
+        "embed(): %d cache hit(s), %d miss(es) out of %d text(s)",
+        len(texts) - len(missing_idx), len(missing_idx), len(texts),
+    )
+    return [json.loads(value) for value in cached_values]

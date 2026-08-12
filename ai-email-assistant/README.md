@@ -60,10 +60,13 @@ ai-email-assistant/
 │   ├── graph/        # LangGraph: state, prompts, nodes, graph wiring
 │   ├── rag/          # Chroma ingestion + retrieval
 │   ├── api/          # FastAPI app (the only thing n8n talks to)
-│   ├── services/     # Postgres + Gmail send
+│   ├── services/     # Postgres, Redis cache, Gmail send
 │   └── config.py     # all settings, read from env vars
+├── tests/            # pytest - optional, see "Tests" below
 ├── documents/        # drop your PDFs here (faq.pdf, manual.pdf, ...)
+├── Dockerfile
 ├── requirements.txt
+├── requirements-dev.txt
 └── .env.example
 ```
 
@@ -76,13 +79,19 @@ pip install -r requirements.txt
 cp .env.example .env   # then fill in the real values
 ```
 
-You need:
-- A **GitHub PAT** with `models: read` permission → `GITHUB_TOKEN`
-  (GitHub Models' current endpoint is `models.github.ai/inference`, not the older
-  `models.inference.ai.azure.com` host from your prototype — that one still works but
-  is being phased out, so the new code uses the current one).
+You need (set one LLM provider at minimum - GitHub Models wins if both are set):
+- A **GitHub PAT** → `GITHUB_TOKEN`, `GITHUB_CHAT_MODEL`, `GITHUB_EMBEDDING_MODEL`.
+  Goes through the Azure AI Inference SDK at `models.inference.ai.azure.com` -
+  raw HTTP to GitHub's newer `models.github.ai` endpoint wasn't reliable, the
+  SDK handles it correctly.
+- **or a Gemini API key** → `GEMINI_API_KEY`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL`
+  (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
 - A **Postgres** instance (any free-tier one works, e.g. Supabase/Neon, or a local
-  install) → `DATABASE_URL`.
+  install) → `DATABASE_URL`. Or set `USE_POSTGRES=false` to skip it entirely and use
+  an in-memory store instead (no DB needed, but data is lost on every restart).
+- A **Redis** instance → `REDIS_URL`, used to cache embeddings so re-ingesting
+  unchanged document chunks doesn't re-call the embeddings API. Or set
+  `USE_REDIS=false` to use an in-memory cache instead (same trade-off as Postgres).
 - A **Gmail OAuth2 client** (Google Cloud Console → OAuth client, scope
   `gmail.send`) with a refresh token obtained once via the OAuth consent flow →
   `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN`.
@@ -122,10 +131,36 @@ Plus two n8n **credentials**:
 - **Gmail OAuth2** (`Gmail account`) — used only by the Gmail Trigger in Workflow 1 to
   *watch* the inbox (the actual *send* happens in FastAPI, not n8n).
 
-## What was intentionally left out
+## Docker (optional)
 
-Per your request: no Docker, no Redis, no pytest. Postgres stays, since it's the
-actual system of record for email status — the kind of detail a recruiter would
-expect from "AI Email Assistant" rather than "AI Email demo script". If you want it
-back later, `services/database.py` and a `regenerate` history table are the natural
-extension points.
+Local venv setup above still works fine on its own - Docker is just an
+alternative, not a requirement.
+
+```bash
+# app only (matches the .env.example defaults: USE_POSTGRES=false, USE_REDIS=false)
+docker compose up app
+
+# bring up Postgres and/or Redis alongside it
+docker compose --profile postgres --profile redis up
+```
+
+`docker-compose.yml` lives at the repo root (one level up from
+`ai-email-assistant/`); the `app` service builds from this directory's
+`Dockerfile` and reads `./ai-email-assistant/.env`. `postgres` and `redis` are
+both opt-in via [Compose profiles](https://docs.docker.com/compose/how-tos/profiles/)
+so a plain `docker compose up` doesn't start containers you didn't ask for.
+
+## Tests
+
+Present, but entirely optional to run - nothing else in this project depends
+on them.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Covers: LLM provider priority/validation, the LangGraph self-correction loop
+logic, the Postgres/Redis in-memory fallbacks, and the FastAPI endpoints
+(auth, validation errors, the full `/email` and `/approve` flows with the
+LLM/Gmail calls mocked out - no real API keys needed to run the suite).
