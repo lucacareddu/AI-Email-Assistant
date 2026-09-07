@@ -6,6 +6,7 @@ from app.graph.nodes import (
     recall_memory,
     retrieve,
     review,
+    route_entry,
     summarize_and_classify,
 )
 from app.graph.state import EmailState
@@ -21,7 +22,12 @@ def build_graph():
     graph.add_node("generate", generate)
     graph.add_node("review", review)
 
-    graph.set_entry_point("summarize_and_classify")
+    # A plain /email run enters at "summarize_and_classify" as always; a
+    # /approve regenerate (see app/api/main.py) enters straight at
+    # "generate" instead - see route_entry's docstring for why.
+    graph.set_conditional_entry_point(
+        route_entry, {"summarize_and_classify": "summarize_and_classify", "generate": "generate"}
+    )
     graph.add_edge("summarize_and_classify", "recall_memory")
     graph.add_edge("recall_memory", "retrieve")
     graph.add_edge("retrieve", "generate")

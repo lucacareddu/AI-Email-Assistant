@@ -100,6 +100,19 @@ def summarize_and_classify(state: EmailState) -> dict:
     return {"summary": summary, "category": category}
 
 
+def route_entry(state: EmailState) -> str:
+    """Entry point router. A plain /email run (or a fresh regenerate flag
+    unset) starts the full pipeline; a /approve regenerate - same thread,
+    admin tip or not - starts straight at "generate" instead. The email's
+    subject/body haven't changed, so there's no reason to re-summarize,
+    re-classify, re-recall this sender's history or re-run RAG retrieval on
+    every tip iteration - Gemini's free tier has real per-minute request
+    limits, and none of those four calls would produce a different result
+    anyway. summary/category/context/sender_memory are simply resumed
+    unchanged from this thread's last checkpoint (see app/api/main.py)."""
+    return "generate" if state.get("regenerate") else "summarize_and_classify"
+
+
 def recall_memory(state: EmailState) -> dict:
     """Cross-session recall: pull whatever we remember about this sender from
     *previous*, separate emails (see app/services/memory.py). This is not the

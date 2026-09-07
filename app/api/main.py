@@ -177,13 +177,18 @@ def handle_approval(
             "[email %s] regenerate requested (%s), re-running the graph",
             payload.id, f"admin tip: {admin_tip}" if admin_tip else "no tip, using default",
         )
-        # sender/subject/body aren't passed here - the checkpointer resumes them
-        # from this thread's last checkpoint (see _thread_config), so this only
-        # needs to supply what's actually changing for the new run.
+        # sender/subject/body/summary/category/context/sender_memory aren't
+        # passed here - the checkpointer resumes them from this thread's last
+        # checkpoint (see _thread_config), so this only needs to supply
+        # what's actually changing for the new run. "regenerate": True also
+        # routes the graph straight to "generate" (see route_entry in
+        # app/graph/nodes.py), skipping a re-summarize/re-classify/re-recall/
+        # re-retrieve that would just reproduce the same result.
         result = email_graph.invoke(
             {
                 "review_attempts": 0,
                 "review_notes": review_notes,
+                "regenerate": True,
             },
             config=_thread_config(record["id"]),
         )

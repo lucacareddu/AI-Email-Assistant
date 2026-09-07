@@ -22,3 +22,11 @@ class EmailState(TypedDict):
     # app/api/main.py for why. Empty string if this is the first time we've
     # heard from this sender.
     sender_memory: str
+
+    # True only on the invoke() call for a /approve regenerate (see
+    # app/api/main.py) - routes the graph's entry point straight to
+    # "generate" (see route_entry in nodes.py), skipping re-summarize,
+    # re-classify, re-recall and re-retrieve for what's still the same
+    # email. summary/category/context/sender_memory are resumed unchanged
+    # from this thread's last checkpoint either way.
+    regenerate: bool

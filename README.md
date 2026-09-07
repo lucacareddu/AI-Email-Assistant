@@ -21,6 +21,15 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_an
   is a real graph, not a chain: the `review` node can loop back to `generate` (up to twice)
   if the model scores its own draft below 7/10. That's the one part of this project worth
   pointing at in an interview — it's not just "call an LLM once".
+- **Two entry points, not one.** A fresh email enters at `summarize_and_classify` as
+  usual; a `/approve` regenerate (admin tips or not) enters straight at `generate`
+  instead (`route_entry` in `app/graph/nodes.py`, picked via
+  `set_conditional_entry_point`) - the subject/body haven't changed, so re-summarizing,
+  re-classifying, re-recalling this sender's history and re-running RAG retrieval on
+  every tip iteration would just reproduce the same result. Gemini's free tier has real
+  per-minute request limits, so this isn't just tidiness - each iteration used to cost 3
+  LLM calls plus 1 embedding call (summarize+classify, generate, review, retrieve); now
+  it's 2 (generate, review).
 - **Two kinds of memory, on top of the graph.** A LangGraph *checkpointer*
   (`app/services/memory.py`) gives every email its own `thread_id`, so the
   initial draft and any later "regenerate" request (admin tips or not - see
