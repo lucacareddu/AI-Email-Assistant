@@ -1,20 +1,27 @@
-SUMMARIZE_PROMPT = """Sei un assistente che riassume email in arrivo per un team di supporto.
-Riassumi in massimo 2 frasi il contenuto dell'email seguente, mantenendo solo i fatti rilevanti.
+SUMMARIZE_AND_CLASSIFY_PROMPT = """Sei un assistente che analizza email in arrivo per un team di supporto.
 
 Oggetto: {subject}
 Corpo:
 {body}
 
-Rispondi solo con il riassunto, senza preamboli."""
+Fai due cose:
+1. Riassumi in massimo 2 frasi il contenuto dell'email, mantenendo solo i fatti rilevanti.
+2. Classifica l'email in UNA sola di queste categorie: support, sales, billing, other."""
 
-
-CLASSIFY_PROMPT = """Classifica l'email seguente in UNA sola di queste categorie:
-support, sales, billing, other.
-
-Oggetto: {subject}
-Riassunto: {summary}
-
-Rispondi solo con il nome della categoria, in minuscolo, senza altro testo."""
+# Gemini structured output (responseSchema) - the model is constrained to this
+# shape, so summarize_and_classify() never has to guess-parse free text for
+# the category the way review() still does for its score/notes.
+SUMMARIZE_AND_CLASSIFY_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "summary": {"type": "STRING"},
+        "category": {
+            "type": "STRING",
+            "enum": ["support", "sales", "billing", "other"],
+        },
+    },
+    "required": ["summary", "category"],
+}
 
 
 GENERATE_PROMPT = """Sei l'assistente email di un'azienda. Scrivi una risposta professionale,

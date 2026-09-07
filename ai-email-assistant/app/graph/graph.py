@@ -1,14 +1,13 @@
 from langgraph.graph import END, StateGraph
 
 from app.graph.nodes import (
-    classify,
     generate,
     needs_revision,
     recall_memory,
     remember,
     retrieve,
     review,
-    summarize,
+    summarize_and_classify,
 )
 from app.graph.state import EmailState
 from app.services.memory import checkpointer, store
@@ -17,17 +16,15 @@ from app.services.memory import checkpointer, store
 def build_graph():
     graph = StateGraph(EmailState)
 
-    graph.add_node("summarize", summarize)
-    graph.add_node("classify", classify)
+    graph.add_node("summarize_and_classify", summarize_and_classify)
     graph.add_node("recall_memory", recall_memory)
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
     graph.add_node("review", review)
     graph.add_node("remember", remember)
 
-    graph.set_entry_point("summarize")
-    graph.add_edge("summarize", "classify")
-    graph.add_edge("classify", "recall_memory")
+    graph.set_entry_point("summarize_and_classify")
+    graph.add_edge("summarize_and_classify", "recall_memory")
     graph.add_edge("recall_memory", "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", "review")

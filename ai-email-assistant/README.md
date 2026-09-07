@@ -6,7 +6,7 @@ is sent to **Telegram** for approval before anything is actually sent, and the w
 thing is glued together with **n8n**.
 
 ```
-Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize → classify → recall → retrieve → generate → review → remember)
+Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_and_classify → recall → retrieve → generate → review → remember)
                                                                                   │
                                                                                   ▼
                                                           Telegram message (Approve / Reject / Regenerate)
@@ -17,7 +17,7 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize �
 
 ## Why it's structured this way
 
-- **LangGraph isn't a single node.** `summarize → classify → recall → retrieve → generate → review → remember`
+- **LangGraph isn't a single node.** `summarize_and_classify → recall → retrieve → generate → review → remember`
   is a real graph, not a chain: the `review` node can loop back to `generate` (up to twice)
   if the model scores its own draft below 7/10. That's the one part of this project worth
   pointing at in an interview — it's not just "call an LLM once".

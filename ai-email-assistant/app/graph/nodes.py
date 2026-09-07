@@ -7,10 +7,10 @@ import httpx
 
 from app.config import settings
 from app.graph.prompts import (
-    CLASSIFY_PROMPT,
     GENERATE_PROMPT,
     REVIEW_PROMPT,
-    SUMMARIZE_PROMPT,
+    SUMMARIZE_AND_CLASSIFY_PROMPT,
+    SUMMARIZE_AND_CLASSIFY_SCHEMA,
 )
 from app.graph.state import EmailState
 from app.rag.retriever import similarity_search
@@ -56,26 +56,48 @@ def _chat(prompt: str) -> str:
     return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
-def summarize(state: EmailState) -> dict:
-    start = time.perf_counter()
-    summary = _chat(SUMMARIZE_PROMPT.format(subject=state["subject"], body=state["body"]))
-    logger.info(
-        "[email %s] summarize done in %.2fs -> %s",
-        state.get("email_id"), time.perf_counter() - start, _short(summary),
+def _chat_json(prompt: str, schema: dict) -> dict:
+    """Like _chat, but constrains Gemini's response to the given JSON schema
+    (Gemini's native structured-output support), instead of asking for JSON
+    in the prompt text and hoping the model complies."""
+    response = httpx.post(
+        f"{settings.gemini_base_url}/{settings.chat_model}:generateContent",
+        headers={
+            "x-goog-api-key": settings.gemini_api_key,
+            "Content-Type": "application/json",
+        },
+        json={
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.3,
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
+            },
+        },
+        timeout=30,
     )
-    return {"summary": summary}
+    if response.status_code >= 400:
+        logger.error("Gemini API error %s: %s", response.status_code, response.text)
+    response.raise_for_status()
+    text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    return json.loads(text)
 
 
-def classify(state: EmailState) -> dict:
+def summarize_and_classify(state: EmailState) -> dict:
+    """Summarize and classify in one call - classify only ever needed the
+    subject and the summary this same call just produced, so there was no
+    reason to make it a separate LLM round-trip."""
     start = time.perf_counter()
-    category = _chat(
-        CLASSIFY_PROMPT.format(subject=state["subject"], summary=state["summary"])
-    ).lower()
-    logger.info(
-        "[email %s] classify done in %.2fs -> %s",
-        state.get("email_id"), time.perf_counter() - start, category,
+    result = _chat_json(
+        SUMMARIZE_AND_CLASSIFY_PROMPT.format(subject=state["subject"], body=state["body"]),
+        schema=SUMMARIZE_AND_CLASSIFY_SCHEMA,
     )
-    return {"category": category}
+    summary, category = result["summary"], result["category"].lower()
+    logger.info(
+        "[email %s] summarize_and_classify done in %.2fs -> category=%s summary=%s",
+        state.get("email_id"), time.perf_counter() - start, category, _short(summary),
+    )
+    return {"summary": summary, "category": category}
 
 
 def recall_memory(state: EmailState) -> dict:
