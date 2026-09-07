@@ -15,8 +15,6 @@ def _require(name: str) -> str:
 
 class Settings:
     # --- Gemini API (Google AI Studio) ---
-    # GitHub Models used to be a supported alternative provider here, but
-    # GitHub discontinued it - Gemini is the only provider now.
     gemini_api_key: str = _require("GEMINI_API_KEY")
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/models"
     chat_model: str = _require("GEMINI_CHAT_MODEL")

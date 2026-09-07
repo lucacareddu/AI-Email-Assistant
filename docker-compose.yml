@@ -1,14 +1,14 @@
 services:
   app:
     build:
-      context: ./ai-email-assistant
+      context: .
     container_name: app
     env_file:
-      - ./ai-email-assistant/.env
+      - ./.env
     ports:
       - "8000:8000"
     volumes:
-      - ./ai-email-assistant/documents:/app/documents
+      - ./documents:/app/documents
       - chroma_data:/app/chroma_db
     restart: unless-stopped
 

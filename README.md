@@ -45,8 +45,8 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_an
 Looking at `My workflow.json`, two patterns were clear and I kept them:
 
 1. **HTTP Request node instead of the AI Agent node** for talking to an LLM. Not an
-   issue here anyway — all LLM calls now live in Python, n8n never talks to GitHub
-   Models directly.
+   issue here anyway — all LLM calls live in Python, n8n never talks to the LLM
+   provider directly.
 2. **HTTP Request node instead of relying on Telegram's own polling/trigger
    mechanics.** Your original workflow already did this for `getUpdates` — I kept the
    exact same `Schedule Trigger → HTTP Request → Code → If` shape for catching button
@@ -74,7 +74,9 @@ ai-email-assistant/
 │   └── config.py     # all settings, read from env vars
 ├── tests/            # pytest - optional, see "Tests" below
 ├── documents/        # drop your PDFs here (faq.pdf, manual.pdf, ...)
+├── n8n_workflows/    # workflow JSON to import into n8n
 ├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
 ├── requirements-dev.txt
 └── .env.example
@@ -83,7 +85,6 @@ ai-email-assistant/
 ## Setup
 
 ```bash
-cd ai-email-assistant
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # then fill in the real values
@@ -91,8 +92,7 @@ cp .env.example .env   # then fill in the real values
 
 You need:
 - A **Gemini API key** → `GEMINI_API_KEY`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL`
-  (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)). GitHub
-  Models used to be a supported alternative provider here, but GitHub discontinued it.
+  (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
 - A **Postgres** instance (any free-tier one works, e.g. Supabase/Neon, or a local
   install) → `DATABASE_URL`. Also backs the LangGraph checkpointer (thread/in-session
   memory) and store (cross-session, per-sender memory) - see `app/services/memory.py`.
@@ -153,11 +153,10 @@ docker compose up app
 docker compose --profile postgres --profile redis up
 ```
 
-`docker-compose.yml` lives at the repo root (one level up from
-`ai-email-assistant/`); the `app` service builds from this directory's
-`Dockerfile` and reads `./ai-email-assistant/.env`. `postgres` and `redis` are
-both opt-in via [Compose profiles](https://docs.docker.com/compose/how-tos/profiles/)
-so a plain `docker compose up` doesn't start containers you didn't ask for.
+`docker-compose.yml` lives at the repo root, alongside the `Dockerfile` it builds
+and the `.env` it reads. `postgres` and `redis` are both opt-in via
+[Compose profiles](https://docs.docker.com/compose/how-tos/profiles/) so a plain
+`docker compose up` doesn't start containers you didn't ask for.
 
 ## Tests
 
