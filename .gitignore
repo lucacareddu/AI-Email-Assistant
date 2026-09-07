@@ -1,5 +1,4 @@
 .env
-test_githubmodels.py
 test_postgres.py
 refresh_token.py
 .venv
