@@ -1,5 +1,6 @@
 import importlib
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -18,12 +19,22 @@ _REQUIRED_BASE = {
 _PROVIDER_KEYS = ["GEMINI_API_KEY", "GEMINI_CHAT_MODEL", "GEMINI_EMBEDDING_MODEL"]
 
 
+def _reload_config():
+    """importlib.reload(config_module) re-runs config.py top to bottom,
+    including load_dotenv() - which would silently refill any var a test just
+    popped from os.environ straight back out of the real project .env file.
+    Patched out here so "pop this var" reliably means "this var is unset" for
+    every reload in this file."""
+    with patch("app.config.load_dotenv"):
+        importlib.reload(config_module)
+
+
 def _reload_with(env: dict):
     for key in _PROVIDER_KEYS:
         os.environ.pop(key, None)
     os.environ.update(_REQUIRED_BASE)
     os.environ.update(env)
-    importlib.reload(config_module)
+    _reload_config()
     return config_module.settings
 
 
@@ -52,7 +63,7 @@ def test_raises_when_gemini_api_key_missing():
         os.environ.pop(key, None)
     os.environ.update(_REQUIRED_BASE)
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
-        importlib.reload(config_module)
+        _reload_config()
 
 
 def test_raises_when_chat_model_missing():
@@ -63,4 +74,4 @@ def test_raises_when_chat_model_missing():
     os.environ["GEMINI_EMBEDDING_MODEL"] = "gemini-embedding-001"
     # GEMINI_CHAT_MODEL deliberately left unset
     with pytest.raises(RuntimeError, match="GEMINI_CHAT_MODEL"):
-        importlib.reload(config_module)
+        _reload_config()
