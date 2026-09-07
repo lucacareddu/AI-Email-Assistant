@@ -29,6 +29,9 @@ Categoria: {category}
 Contesto recuperato dalla documentazione aziendale:
 {context}
 
+Memoria di email precedenti ricevute da questo stesso mittente (ignora se non rilevante):
+{sender_memory}
+
 {revision_note}
 
 Scrivi solo il corpo della risposta email, senza oggetto e senza firma."""

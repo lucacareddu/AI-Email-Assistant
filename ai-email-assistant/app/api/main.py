@@ -11,6 +11,7 @@ from app.graph.graph import email_graph
 from app.logging_config import configure_logging
 from app.services.database import create_email, get_email, init_db, update_email
 from app.services.gmail import send_reply
+from app.services.memory import init_memory
 
 configure_logging()
 logger = logging.getLogger("api")
@@ -21,7 +22,15 @@ app = FastAPI(title="AI Email Assistant")
 @app.on_event("startup")
 def startup():
     init_db()
-    logger.info("AI Email Assistant started, DB initialised")
+    init_memory()
+    logger.info("AI Email Assistant started, DB + thread/sender memory initialised")
+
+
+def _thread_config(email_id: int) -> dict:
+    """One LangGraph thread per email - shared by the initial /email run and
+    any later /approve regenerate calls for that same email, so the
+    checkpointer's in-session history stays scoped to one conversation."""
+    return {"configurable": {"thread_id": str(email_id)}}
 
 
 # --- n8n connectivity logging -------------------------------------------------
@@ -93,7 +102,8 @@ def handle_email(
             "body": payload.body,
             "review_attempts": 0,
             "review_notes": "",
-        }
+        },
+        config=_thread_config(record["id"]),
     )
 
     record = update_email(
@@ -137,15 +147,15 @@ def handle_approval(
 
     elif payload.action == "regenerate":
         logger.info("[email %s] regenerate requested, re-running the graph", payload.id)
+        # sender/subject/body aren't passed here - the checkpointer resumes them
+        # from this thread's last checkpoint (see _thread_config), so this only
+        # needs to supply what's actually changing for the new run.
         result = email_graph.invoke(
             {
-                "email_id": record["id"],
-                "sender": record["sender"],
-                "subject": record["subject"],
-                "body": record["body"],
                 "review_attempts": 0,
                 "review_notes": "Il revisore umano ha richiesto una versione diversa.",
-            }
+            },
+            config=_thread_config(record["id"]),
         )
         record = update_email(payload.id, draft=result["draft"], category=result["category"])
 

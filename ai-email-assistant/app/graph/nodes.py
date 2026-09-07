@@ -17,6 +17,7 @@ from app.graph.prompts import (
 )
 from app.graph.state import EmailState
 from app.rag.retriever import similarity_search
+from app.services.memory import recall_sender_memory, remember_sender_interaction
 
 MAX_REVIEW_ATTEMPTS = 2
 
@@ -115,6 +116,21 @@ def classify(state: EmailState) -> dict:
     return {"category": category}
 
 
+def recall_memory(state: EmailState) -> dict:
+    """Cross-session recall: pull whatever we remember about this sender from
+    *previous*, separate emails (see app/services/memory.py). This is not the
+    in-session/thread state LangGraph already carries between the nodes below
+    - it's memory that outlives this one thread entirely."""
+    start = time.perf_counter()
+    memory = recall_sender_memory(state["sender"])
+    logger.info(
+        "[email %s] recall done in %.2fs -> %s",
+        state.get("email_id"), time.perf_counter() - start,
+        "found prior memory" if memory else "no prior memory for this sender",
+    )
+    return {"sender_memory": memory}
+
+
 def retrieve(state: EmailState) -> dict:
     start = time.perf_counter()
     chunks = similarity_search(f"{state['subject']} {state['summary']}", k=4)
@@ -145,6 +161,7 @@ def generate(state: EmailState) -> dict:
             body=state["body"],
             category=state.get("category", "other"),
             context=state.get("context", ""),
+            sender_memory=state.get("sender_memory") or "Nessuna interazione precedente nota.",
             revision_note=revision_note,
         )
     )
@@ -181,6 +198,17 @@ def review(state: EmailState) -> dict:
         "review_notes": notes,
         "review_attempts": state.get("review_attempts", 0) + 1,
     }
+
+
+def remember(state: EmailState) -> dict:
+    """Cross-session write-back: runs once the review loop is done, so we
+    only persist the final accepted draft's summary - not every intermediate
+    self-correction attempt. This is what recall_memory (above) reads back
+    the next time this same sender emails in, on a different thread."""
+    entry = f"Oggetto: {state['subject']} | Categoria: {state.get('category', 'other')} | Riassunto: {state.get('summary', '')}"
+    remember_sender_interaction(state["sender"], entry)
+    logger.info("[email %s] sender memory updated for %s", state.get("email_id"), state["sender"])
+    return {"memory_saved": True}
 
 
 def needs_revision(state: EmailState) -> str:

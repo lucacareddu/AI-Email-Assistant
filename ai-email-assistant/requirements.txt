@@ -52,6 +52,7 @@ kubernetes==36.0.2
 langchain-core==0.3.86
 langgraph==0.2.39
 langgraph-checkpoint==2.1.2
+langgraph-checkpoint-postgres==2.0.25
 langgraph-sdk==0.1.74
 langsmith==0.8.18
 markdown-it-py==4.2.0
@@ -80,6 +81,9 @@ posthog==7.19.2
 propcache==0.5.2
 proto-plus==1.28.0
 protobuf==6.33.6
+psycopg==3.3.5
+psycopg-binary==3.3.5
+psycopg-pool==3.3.1
 psycopg2-binary==2.9.9
 pyasn1==0.6.3
 pyasn1_modules==0.4.2

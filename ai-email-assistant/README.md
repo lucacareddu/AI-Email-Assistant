@@ -6,7 +6,7 @@ is sent to **Telegram** for approval before anything is actually sent, and the w
 thing is glued together with **n8n**.
 
 ```
-Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize → classify → retrieve → generate → review)
+Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize → classify → recall → retrieve → generate → review → remember)
                                                                                   │
                                                                                   ▼
                                                           Telegram message (Approve / Reject / Regenerate)
@@ -17,10 +17,20 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize �
 
 ## Why it's structured this way
 
-- **LangGraph isn't a single node.** `summarize → classify → retrieve → generate → review`
+- **LangGraph isn't a single node.** `summarize → classify → recall → retrieve → generate → review → remember`
   is a real graph, not a chain: the `review` node can loop back to `generate` (up to twice)
   if the model scores its own draft below 7/10. That's the one part of this project worth
   pointing at in an interview — it's not just "call an LLM once".
+- **Two kinds of memory, on top of the graph.** A LangGraph *checkpointer*
+  (`app/services/memory.py`) gives every email its own `thread_id`, so the
+  initial draft and any later "regenerate" request are the same in-session
+  conversation as far as LangGraph is concerned — not two unrelated calls the
+  API has to manually stitch back together. A LangGraph *store*, keyed by
+  sender address instead of thread_id, gives cross-session memory: the
+  `recall`/`remember` nodes read and write a short rolling history per
+  sender, so a reply can reflect *previous, separate* emails from the same
+  person. Both are Postgres-backed (same `USE_POSTGRES` toggle as everything
+  else) or in-process for a quick demo.
 - **RAG is a local Chroma store**, populated by `app/rag/ingest.py` from PDFs dropped in
   `documents/`. No extra infra, no Docker needed for it.
 - **n8n is glue, not logic.** All the AI work happens in Python. n8n's only job is:
@@ -60,7 +70,7 @@ ai-email-assistant/
 │   ├── graph/        # LangGraph: state, prompts, nodes, graph wiring
 │   ├── rag/          # Chroma ingestion + retrieval
 │   ├── api/          # FastAPI app (the only thing n8n talks to)
-│   ├── services/     # Postgres, Redis cache, Gmail send
+│   ├── services/     # Postgres, Redis cache, Gmail send, LangGraph thread/sender memory
 │   └── config.py     # all settings, read from env vars
 ├── tests/            # pytest - optional, see "Tests" below
 ├── documents/        # drop your PDFs here (faq.pdf, manual.pdf, ...)
@@ -87,8 +97,10 @@ You need (set one LLM provider at minimum - GitHub Models wins if both are set):
 - **or a Gemini API key** → `GEMINI_API_KEY`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL`
   (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
 - A **Postgres** instance (any free-tier one works, e.g. Supabase/Neon, or a local
-  install) → `DATABASE_URL`. Or set `USE_POSTGRES=false` to skip it entirely and use
-  an in-memory store instead (no DB needed, but data is lost on every restart).
+  install) → `DATABASE_URL`. Also backs the LangGraph checkpointer (thread/in-session
+  memory) and store (cross-session, per-sender memory) - see `app/services/memory.py`.
+  Or set `USE_POSTGRES=false` to skip it entirely and use in-process, non-persistent
+  equivalents instead (no DB needed, but data is lost on every restart).
 - A **Redis** instance → `REDIS_URL`, used to cache embeddings so re-ingesting
   unchanged document chunks doesn't re-call the embeddings API. Or set
   `USE_REDIS=false` to use an in-memory cache instead (same trade-off as Postgres).
@@ -161,6 +173,7 @@ pytest
 ```
 
 Covers: LLM provider priority/validation, the LangGraph self-correction loop
-logic, the Postgres/Redis in-memory fallbacks, and the FastAPI endpoints
-(auth, validation errors, the full `/email` and `/approve` flows with the
-LLM/Gmail calls mocked out - no real API keys needed to run the suite).
+logic, the thread/sender memory helpers, the Postgres/Redis in-memory
+fallbacks, and the FastAPI endpoints (auth, validation errors, the full
+`/email` and `/approve` flows with the LLM/Gmail calls mocked out - no real
+API keys needed to run the suite).
