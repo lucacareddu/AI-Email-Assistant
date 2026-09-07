@@ -121,8 +121,9 @@ uvicorn app.api.main:app --reload
 
 ## n8n setup
 
-Import `n8n_workflows/1_new_email_to_draft.json` and
-`n8n_workflows/2_telegram_approval.json`.
+Import `n8n_workflows/AI Email Assistant - 3.json` (both workflows - new email →
+draft, and the Telegram approval loop - live in this one file, on separate
+trigger branches).
 
 Set these n8n environment variables (Settings → Variables, or your `.env` if
 self-hosting):
@@ -135,10 +136,19 @@ self-hosting):
 
 Plus two n8n **credentials**:
 - **Header Auth** (`Header Auth account`) — header name `X-Webhook-Token`, value =
-  the same `WEBHOOK_TOKEN` you set in `.env`. Attach it to the two "Call FastAPI" HTTP
+  the same `WEBHOOK_TOKEN` you set in `.env`. Attach it to the three "Call FastAPI" HTTP
   Request nodes.
 - **Gmail OAuth2** (`Gmail account`) — used only by the Gmail Trigger in Workflow 1 to
   *watch* the inbox (the actual *send* happens in FastAPI, not n8n).
+
+**Regenerate with admin tips:** tapping 🔄 Regenerate still regenerates immediately with
+the default review note, exactly as before - that path is untouched. Separately, the
+admin can *reply* (Telegram's native reply-to-message gesture) to the bot's draft
+message with free-text tips or preferences; the draft message carries its email id
+inline (`[ID: ...]`) so the reply can be traced back to it without any extra state. That
+reply is forwarded as `notes` on `/approve` and used as the reviewer's note for that
+regeneration - no button tap needed for the tips path. Preferences are entirely
+optional: no reply means the default regeneration whenever Regenerate is tapped.
 
 ## Docker (optional)
 

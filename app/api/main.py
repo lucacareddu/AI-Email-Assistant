@@ -73,9 +73,17 @@ class IncomingEmail(BaseModel):
     body: str
 
 
+DEFAULT_REGENERATE_NOTE = "Il revisore umano ha richiesto una versione diversa."
+
+
 class ApproveRequest(BaseModel):
     id: int
     action: str  # approve | reject | regenerate
+    # Optional admin-supplied tips for a "regenerate" (e.g. sent as a Telegram
+    # reply to the draft - see n8n_workflows/). Ignored for approve/reject.
+    # Falls back to DEFAULT_REGENERATE_NOTE below when absent/blank, so
+    # regenerate still works exactly as before when nobody gives a tip.
+    notes: Optional[str] = None
 
 
 @app.post("/email")
@@ -146,14 +154,19 @@ def handle_approval(
         logger.info("[email %s] rejected by reviewer", payload.id)
 
     elif payload.action == "regenerate":
-        logger.info("[email %s] regenerate requested, re-running the graph", payload.id)
+        admin_tip = (payload.notes or "").strip()
+        review_notes = admin_tip or DEFAULT_REGENERATE_NOTE
+        logger.info(
+            "[email %s] regenerate requested (%s), re-running the graph",
+            payload.id, f"admin tip: {admin_tip}" if admin_tip else "no tip, using default",
+        )
         # sender/subject/body aren't passed here - the checkpointer resumes them
         # from this thread's last checkpoint (see _thread_config), so this only
         # needs to supply what's actually changing for the new run.
         result = email_graph.invoke(
             {
                 "review_attempts": 0,
-                "review_notes": "Il revisore umano ha richiesto una versione diversa.",
+                "review_notes": review_notes,
             },
             config=_thread_config(record["id"]),
         )

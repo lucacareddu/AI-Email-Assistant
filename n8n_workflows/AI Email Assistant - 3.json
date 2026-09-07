@@ -63,7 +63,7 @@
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($env.TELEGRAM_CHAT_ID) }},\n  \"text\": {{ JSON.stringify(\n      \"Nuova email\\n\\n\" +\n      \"Da: \" + $('Gmail Trigger').item.json.from + \"\\n\" +\n      \"Oggetto: \" + $('Gmail Trigger').item.json.subject + \"\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\" +\n      \"Riassunto: \" + $json.summary + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"❌ Reject\", \"callback_data\": \"{{ $json.id }}:reject\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($env.TELEGRAM_CHAT_ID) }},\n  \"text\": {{ JSON.stringify(\n      \"Nuova email\\n\\n\" +\n      \"Da: \" + $('Gmail Trigger').item.json.from + \"\\n\" +\n      \"Oggetto: \" + $('Gmail Trigger').item.json.subject + \"\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\" +\n      \"Riassunto: \" + $json.summary + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft + \"\\n\\n[ID: \" + $json.id + \"]\\n\" +\n      \"(Rispondi a questo messaggio con le tue indicazioni per rigenerare la bozza.)\"\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"❌ Reject\", \"callback_data\": \"{{ $json.id }}:reject\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -217,6 +217,101 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "94a975d9-8c4a-4efe-aa0e-31d3697b0118",
+              "leftValue": "={{ $('Filter New Updates1').item.json.message?.reply_to_message?.text }}",
+              "rightValue": "[ID: ",
+              "operator": {
+                "type": "string",
+                "operation": "contains",
+                "name": "filter.operator.contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        560
+      ],
+      "id": "c313fe0c-b388-4538-874f-bd728b16095c",
+      "name": "Is Tip Reply1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The id is embedded in the draft message itself (Send Telegram Approval\n// Message), as \"[ID: <id>]\" - pull it back out of reply_to_message.text.\nconst item = $('Filter New Updates1').item.json;\nconst originalText = item.message.reply_to_message.text || '';\nconst match = originalText.match(/\\[ID: (\\d+)\\]/);\nconst emailId = match ? match[1] : null;\n\nconst tip = (item.message.text || '').trim();\n\nreturn [{ json: { id: emailId, notes: tip } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        560
+      ],
+      "id": "42481b0e-3309-45b3-8a55-1ae7661147d2",
+      "name": "Extract Regenerate Tip1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://127.0.0.1:8000/approve",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"id\": {{ $json.id }},\n  \"action\": \"regenerate\",\n  \"notes\": {{ JSON.stringify($json.notes) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        560
+      ],
+      "id": "61f357b5-3331-4628-9370-06aef92dc8cf",
+      "name": "Call FastAPI - Approve (Tip)1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "TOHb5gtGbJGkI8It",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Filter New Updates1').item.json.message.chat.id }}",
+        "text": "={{ $json.status === 'sent' ? '✅ Email inviata.' : $json.status === 'rejected' ? '❌ Bozza rifiutata.' : 'Nuova bozza generata (con le tue indicazioni):\\n\\n' + $json.draft }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        560
+      ],
+      "id": "35b24ca2-f462-48f9-be01-cf3f082db84e",
+      "name": "Send Confirmation (Tip)1",
+      "webhookId": "8e3d8d8f-91b7-4920-9330-463201384d42",
+      "credentials": {
+        "telegramApi": {
+          "id": "8EiuVyHAME8bxi3U",
+          "name": "Telegram account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -284,6 +379,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Is Tip Reply1",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -303,6 +405,40 @@
         [
           {
             "node": "Send Confirmation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Tip Reply1": {
+      "main": [
+        [
+          {
+            "node": "Extract Regenerate Tip1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extract Regenerate Tip1": {
+      "main": [
+        [
+          {
+            "node": "Call FastAPI - Approve (Tip)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call FastAPI - Approve (Tip)1": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation (Tip)1",
             "type": "main",
             "index": 0
           }

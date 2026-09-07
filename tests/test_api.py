@@ -76,6 +76,45 @@ def test_approve_action_regenerates_with_mocked_graph():
         assert r.json()["draft"] == "new draft"
 
 
+def test_regenerate_without_notes_uses_default_review_notes():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+    fake_result = {"draft": "new draft", "category": "support"}
+
+    with TestClient(app) as client, patch("app.api.main.email_graph.invoke", return_value=fake_result) as mock_invoke:
+        client.post("/approve", json={"id": record["id"], "action": "regenerate"}, headers=HEADERS)
+
+        sent_state = mock_invoke.call_args.args[0]
+        assert sent_state["review_notes"] == "Il revisore umano ha richiesto una versione diversa."
+
+
+def test_regenerate_with_admin_tip_passes_it_as_review_notes():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+    fake_result = {"draft": "new draft", "category": "support"}
+
+    with TestClient(app) as client, patch("app.api.main.email_graph.invoke", return_value=fake_result) as mock_invoke:
+        client.post(
+            "/approve",
+            json={"id": record["id"], "action": "regenerate", "notes": "Sii più formale e più breve"},
+            headers=HEADERS,
+        )
+
+        sent_state = mock_invoke.call_args.args[0]
+        assert sent_state["review_notes"] == "Sii più formale e più breve"
+
+
+def test_regenerate_with_blank_notes_falls_back_to_default():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+    fake_result = {"draft": "new draft", "category": "support"}
+
+    with TestClient(app) as client, patch("app.api.main.email_graph.invoke", return_value=fake_result) as mock_invoke:
+        client.post(
+            "/approve", json={"id": record["id"], "action": "regenerate", "notes": "   "}, headers=HEADERS,
+        )
+
+        sent_state = mock_invoke.call_args.args[0]
+        assert sent_state["review_notes"] == "Il revisore umano ha richiesto una versione diversa."
+
+
 def test_approve_unknown_action_returns_400():
     record = create_email(sender="a@b.com", subject="hi", body="hello")
 
