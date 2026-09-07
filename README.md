@@ -6,7 +6,7 @@ is sent to **Telegram** for approval before anything is actually sent, and the w
 thing is glued together with **n8n**.
 
 ```
-Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_and_classify → recall → retrieve → generate → review → remember)
+Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_and_classify → recall → retrieve → generate → review)
                                                                                   │
                                                                                   ▼
                                                           Telegram message (Approve / Reject / Regenerate)
@@ -17,20 +17,26 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_an
 
 ## Why it's structured this way
 
-- **LangGraph isn't a single node.** `summarize_and_classify → recall → retrieve → generate → review → remember`
+- **LangGraph isn't a single node.** `summarize_and_classify → recall → retrieve → generate → review`
   is a real graph, not a chain: the `review` node can loop back to `generate` (up to twice)
   if the model scores its own draft below 7/10. That's the one part of this project worth
   pointing at in an interview — it's not just "call an LLM once".
 - **Two kinds of memory, on top of the graph.** A LangGraph *checkpointer*
   (`app/services/memory.py`) gives every email its own `thread_id`, so the
-  initial draft and any later "regenerate" request are the same in-session
-  conversation as far as LangGraph is concerned — not two unrelated calls the
+  initial draft and any later "regenerate" request (admin tips or not - see
+  below) are the same in-session conversation as far as LangGraph is
+  concerned, replayed on the same thread instead of two unrelated calls the
   API has to manually stitch back together. A LangGraph *store*, keyed by
   sender address instead of thread_id, gives cross-session memory: the
-  `recall`/`remember` nodes read and write a short rolling history per
-  sender, so a reply can reflect *previous, separate* emails from the same
-  person. Both are Postgres-backed (same `USE_POSTGRES` toggle as everything
-  else) or in-process for a quick demo.
+  `recall_memory` node reads a short rolling history per sender before every
+  draft, so a reply can reflect *previous, separate* emails from the same
+  person. Writing that history back is deliberately *not* a graph node,
+  though - `regenerate` re-runs the graph on the same thread as many times as
+  the admin iterates, so "the draft passed review" happens once per
+  iteration, not once per email; `handle_approval()` in `app/api/main.py`
+  calls it once instead, only when the email reaches a terminal state
+  (approve/reject). Both are Postgres-backed (same `USE_POSTGRES` toggle as
+  everything else) or in-process for a quick demo.
 - **RAG is a local Chroma store**, populated by `app/rag/ingest.py` from PDFs dropped in
   `documents/`. No extra infra, no Docker needed for it.
 - **n8n is glue, not logic.** All the AI work happens in Python. n8n's only job is:

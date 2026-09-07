@@ -1,6 +1,7 @@
 """USE_POSTGRES=false in conftest.py, so these exercise the in-process
-InMemoryStore fallback - same code path recall_memory/remember (app/graph/
-nodes.py) call in production, just backed by memory instead of Postgres."""
+InMemoryStore fallback - same code path recall_memory (app/graph/nodes.py)
+and handle_approval (app/api/main.py) call in production, just backed by
+memory instead of Postgres."""
 from app.services.memory import recall_sender_memory, remember_sender_interaction, store
 
 

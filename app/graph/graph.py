@@ -4,7 +4,6 @@ from app.graph.nodes import (
     generate,
     needs_revision,
     recall_memory,
-    remember,
     retrieve,
     review,
     summarize_and_classify,
@@ -21,7 +20,6 @@ def build_graph():
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
     graph.add_node("review", review)
-    graph.add_node("remember", remember)
 
     graph.set_entry_point("summarize_and_classify")
     graph.add_edge("summarize_and_classify", "recall_memory")
@@ -31,17 +29,25 @@ def build_graph():
 
     # The review node can loop back to "generate" (self-correction) instead of
     # always ending — this is the bit that's actually worth showing a
-    # recruiter: it's not just a linear chain. Once it's happy, "remember"
-    # writes the final draft back to cross-session (sender-scoped) memory
-    # before the run ends.
-    graph.add_conditional_edges("review", needs_revision, {"generate": "generate", "end": "remember"})
-    graph.add_edge("remember", END)
+    # recruiter: it's not just a linear chain.
+    #
+    # Note there's no "remember" node here: this graph re-runs from its entry
+    # point on every /approve regenerate too (same thread_id, admin tips or
+    # not - see app/api/main.py), so "review passed" happens once per
+    # iteration, not once per email. Writing cross-session memory here would
+    # both spam a sender's history with one entry per iteration and, worse,
+    # have recall_memory read back an in-progress email as if it were a past
+    # one. remember_sender_interaction() is instead called directly from
+    # handle_approval() only once the email reaches a terminal state
+    # (approve/reject) - see app/api/main.py.
+    graph.add_conditional_edges("review", needs_revision, {"generate": "generate", "end": END})
 
     # checkpointer = in-session memory, keyed by the thread_id passed at
     # invoke() time (one thread per email - see app/api/main.py). store =
     # cross-session memory, keyed by sender address (see app/services/memory.py,
-    # used directly by the recall_memory/remember nodes above). Both are
-    # Postgres-backed or in-process depending on USE_POSTGRES.
+    # used directly by recall_memory above and by handle_approval() in
+    # app/api/main.py). Both are Postgres-backed or in-process depending on
+    # USE_POSTGRES.
     return graph.compile(checkpointer=checkpointer, store=store)
 
 

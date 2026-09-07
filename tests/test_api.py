@@ -64,6 +64,43 @@ def test_approve_action_rejects_and_marks_rejected():
         assert r.json()["status"] == "rejected"
 
 
+def test_approve_writes_sender_memory_once():
+    record = create_email(sender="remember-me@example.com", subject="hi", body="hello")
+
+    with TestClient(app) as client, patch("app.api.main.send_reply"), \
+            patch("app.api.main.remember_sender_interaction") as mock_remember:
+        client.post("/approve", json={"id": record["id"], "action": "approve"}, headers=HEADERS)
+
+        mock_remember.assert_called_once()
+        assert mock_remember.call_args.args[0] == "remember-me@example.com"
+
+
+def test_reject_also_writes_sender_memory():
+    record = create_email(sender="remember-me-too@example.com", subject="hi", body="hello")
+
+    with TestClient(app) as client, patch("app.api.main.remember_sender_interaction") as mock_remember:
+        client.post("/approve", json={"id": record["id"], "action": "reject"}, headers=HEADERS)
+
+        mock_remember.assert_called_once()
+        assert mock_remember.call_args.args[0] == "remember-me-too@example.com"
+
+
+def test_regenerate_does_not_write_sender_memory():
+    """regenerate re-runs the graph on the same thread every time the admin
+    iterates - writing cross-session memory here (instead of once at
+    approve/reject) would both spam the sender's history with one entry per
+    iteration and have the next iteration's recall read back this same
+    still-in-progress email as if it were a past one."""
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+    fake_result = {"draft": "new draft", "category": "support"}
+
+    with TestClient(app) as client, patch("app.api.main.email_graph.invoke", return_value=fake_result), \
+            patch("app.api.main.remember_sender_interaction") as mock_remember:
+        client.post("/approve", json={"id": record["id"], "action": "regenerate"}, headers=HEADERS)
+
+        mock_remember.assert_not_called()
+
+
 def test_approve_action_regenerates_with_mocked_graph():
     record = create_email(sender="a@b.com", subject="hi", body="hello")
     fake_result = {"draft": "new draft", "category": "support"}

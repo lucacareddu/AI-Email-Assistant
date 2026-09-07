@@ -11,7 +11,7 @@ from app.graph.graph import email_graph
 from app.logging_config import configure_logging
 from app.services.database import create_email, get_email, init_db, update_email
 from app.services.gmail import send_reply
-from app.services.memory import init_memory
+from app.services.memory import init_memory, remember_sender_interaction
 
 configure_logging()
 logger = logging.getLogger("api")
@@ -31,6 +31,21 @@ def _thread_config(email_id: int) -> dict:
     any later /approve regenerate calls for that same email, so the
     checkpointer's in-session history stays scoped to one conversation."""
     return {"configurable": {"thread_id": str(email_id)}}
+
+
+def _remember(record: dict) -> None:
+    """Cross-session write-back, called once an email reaches a terminal
+    state (approve/reject) - not on every /approve regenerate. regenerate
+    re-runs the graph from its entry point on the *same* thread (admin tips
+    or not), so "the draft passed review" happens once per iteration, not
+    once per email; writing memory there would both spam a sender's history
+    with one entry per iteration and have the next iteration's recall read
+    back an email that's still in progress as if it were a past one. This is
+    what recall_memory (app/graph/nodes.py) reads back on that sender's
+    *next, separate* email."""
+    entry = f"Oggetto: {record['subject']} | Categoria: {record.get('category', 'other')} | Riassunto: {record.get('summary', '')}"
+    remember_sender_interaction(record["sender"], entry)
+    logger.info("[email %s] sender memory updated for %s", record["id"], record["sender"])
 
 
 # --- n8n connectivity logging -------------------------------------------------
@@ -147,10 +162,12 @@ def handle_approval(
     if payload.action == "approve":
         send_reply(to=record["sender"], subject=record["subject"], body=record["draft"])
         record = update_email(payload.id, status="sent")
+        _remember(record)
         logger.info("[email %s] reply sent via Gmail API", payload.id)
 
     elif payload.action == "reject":
         record = update_email(payload.id, status="rejected")
+        _remember(record)
         logger.info("[email %s] rejected by reviewer", payload.id)
 
     elif payload.action == "regenerate":

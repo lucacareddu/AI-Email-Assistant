@@ -14,7 +14,7 @@ from app.graph.prompts import (
 )
 from app.graph.state import EmailState
 from app.rag.retriever import similarity_search
-from app.services.memory import recall_sender_memory, remember_sender_interaction
+from app.services.memory import recall_sender_memory
 
 MAX_REVIEW_ATTEMPTS = 2
 
@@ -182,17 +182,6 @@ def review(state: EmailState) -> dict:
         "review_notes": notes,
         "review_attempts": state.get("review_attempts", 0) + 1,
     }
-
-
-def remember(state: EmailState) -> dict:
-    """Cross-session write-back: runs once the review loop is done, so we
-    only persist the final accepted draft's summary - not every intermediate
-    self-correction attempt. This is what recall_memory (above) reads back
-    the next time this same sender emails in, on a different thread."""
-    entry = f"Oggetto: {state['subject']} | Categoria: {state.get('category', 'other')} | Riassunto: {state.get('summary', '')}"
-    remember_sender_interaction(state["sender"], entry)
-    logger.info("[email %s] sender memory updated for %s", state.get("email_id"), state["sender"])
-    return {"memory_saved": True}
 
 
 def needs_revision(state: EmailState) -> str:
