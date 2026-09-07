@@ -89,13 +89,10 @@ pip install -r requirements.txt
 cp .env.example .env   # then fill in the real values
 ```
 
-You need (set one LLM provider at minimum - GitHub Models wins if both are set):
-- A **GitHub PAT** → `GITHUB_TOKEN`, `GITHUB_CHAT_MODEL`, `GITHUB_EMBEDDING_MODEL`.
-  Goes through the Azure AI Inference SDK at `models.inference.ai.azure.com` -
-  raw HTTP to GitHub's newer `models.github.ai` endpoint wasn't reliable, the
-  SDK handles it correctly.
-- **or a Gemini API key** → `GEMINI_API_KEY`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL`
-  (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)).
+You need:
+- A **Gemini API key** → `GEMINI_API_KEY`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL`
+  (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)). GitHub
+  Models used to be a supported alternative provider here, but GitHub discontinued it.
 - A **Postgres** instance (any free-tier one works, e.g. Supabase/Neon, or a local
   install) → `DATABASE_URL`. Also backs the LangGraph checkpointer (thread/in-session
   memory) and store (cross-session, per-sender memory) - see `app/services/memory.py`.
@@ -172,7 +169,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-Covers: LLM provider priority/validation, the LangGraph self-correction loop
+Covers: LLM config validation, the LangGraph self-correction loop
 logic, the thread/sender memory helpers, the Postgres/Redis in-memory
 fallbacks, and the FastAPI endpoints (auth, validation errors, the full
 `/email` and `/approve` flows with the LLM/Gmail calls mocked out - no real

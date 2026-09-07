@@ -15,11 +15,7 @@ _REQUIRED_BASE = {
     "USE_REDIS": "false",
 }
 
-_PROVIDER_KEYS = [
-    "GITHUB_TOKEN", "GEMINI_API_KEY",
-    "GITHUB_CHAT_MODEL", "GITHUB_EMBEDDING_MODEL",
-    "GEMINI_CHAT_MODEL", "GEMINI_EMBEDDING_MODEL",
-]
+_PROVIDER_KEYS = ["GEMINI_API_KEY", "GEMINI_CHAT_MODEL", "GEMINI_EMBEDDING_MODEL"]
 
 
 def _reload_with(env: dict):
@@ -43,38 +39,28 @@ def _restore_valid_settings_after_each_test():
     })
 
 
-def test_github_wins_when_both_are_set():
-    settings = _reload_with({
-        "GITHUB_TOKEN": "gh", "GITHUB_CHAT_MODEL": "gpt-4o-mini", "GITHUB_EMBEDDING_MODEL": "text-embedding-3-small",
-        "GEMINI_API_KEY": "gem", "GEMINI_CHAT_MODEL": "gemini-2.5-flash", "GEMINI_EMBEDDING_MODEL": "gemini-embedding-001",
-    })
-    assert settings.llm_provider == "github"
-    assert settings.chat_model == "gpt-4o-mini"
-    assert settings.embedding_model == "text-embedding-3-small"
-
-
-def test_gemini_used_when_github_token_absent():
+def test_loads_gemini_settings():
     settings = _reload_with({
         "GEMINI_API_KEY": "gem", "GEMINI_CHAT_MODEL": "gemini-2.5-flash", "GEMINI_EMBEDDING_MODEL": "gemini-embedding-001",
     })
-    assert settings.llm_provider == "gemini"
     assert settings.chat_model == "gemini-2.5-flash"
+    assert settings.embedding_model == "gemini-embedding-001"
 
 
-def test_raises_when_neither_provider_key_set():
+def test_raises_when_gemini_api_key_missing():
     for key in _PROVIDER_KEYS:
         os.environ.pop(key, None)
     os.environ.update(_REQUIRED_BASE)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         importlib.reload(config_module)
 
 
-def test_raises_when_active_provider_model_var_missing():
+def test_raises_when_chat_model_missing():
     for key in _PROVIDER_KEYS:
         os.environ.pop(key, None)
     os.environ.update(_REQUIRED_BASE)
-    os.environ["GITHUB_TOKEN"] = "gh"
-    os.environ["GITHUB_EMBEDDING_MODEL"] = "text-embedding-3-small"
-    # GITHUB_CHAT_MODEL deliberately left unset
-    with pytest.raises(RuntimeError, match="GITHUB_CHAT_MODEL"):
+    os.environ["GEMINI_API_KEY"] = "gem"
+    os.environ["GEMINI_EMBEDDING_MODEL"] = "gemini-embedding-001"
+    # GEMINI_CHAT_MODEL deliberately left unset
+    with pytest.raises(RuntimeError, match="GEMINI_CHAT_MODEL"):
         importlib.reload(config_module)

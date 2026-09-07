@@ -2,30 +2,11 @@ import json
 import logging
 
 import httpx
-from azure.ai.inference import EmbeddingsClient
-from azure.core.credentials import AzureKeyCredential
 
 from app.config import settings
 from app.services import cache
 
 logger = logging.getLogger("graph")
-
-_github_embeddings_client = None
-
-
-def _get_github_embeddings_client() -> EmbeddingsClient:
-    global _github_embeddings_client
-    if _github_embeddings_client is None:
-        _github_embeddings_client = EmbeddingsClient(
-            endpoint=settings.github_endpoint,
-            credential=AzureKeyCredential(settings.github_token),
-        )
-    return _github_embeddings_client
-
-
-def _embed_github(texts: list[str]) -> list[list[float]]:
-    response = _get_github_embeddings_client().embed(input=texts, model=settings.embedding_model)
-    return [item.embedding for item in response.data]
 
 
 def _embed_gemini(texts: list[str]) -> list[list[float]]:
@@ -51,8 +32,7 @@ def _embed_gemini(texts: list[str]) -> list[list[float]]:
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    """Embeds via whichever LLM provider is configured (GitHub Models takes
-    priority over Gemini if both are set - see app/config.py).
+    """Embeds via the Gemini API.
 
     Results are cached (Redis or in-memory, see app/services/cache.py) keyed
     by text+model, so re-ingesting unchanged document chunks doesn't re-call
@@ -64,11 +44,7 @@ def embed(texts: list[str]) -> list[list[float]]:
     missing_idx = [i for i, value in enumerate(cached_values) if value is None]
     if missing_idx:
         missing_texts = [texts[i] for i in missing_idx]
-        fresh = (
-            _embed_github(missing_texts)
-            if settings.llm_provider == "github"
-            else _embed_gemini(missing_texts)
-        )
+        fresh = _embed_gemini(missing_texts)
         for idx, vector in zip(missing_idx, fresh):
             serialized = json.dumps(vector)
             cache.cache_set(keys[idx], serialized)

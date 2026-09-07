@@ -4,9 +4,6 @@ import re
 import time
 
 import httpx
-from azure.ai.inference import ChatCompletionsClient
-from azure.ai.inference.models import UserMessage
-from azure.core.credentials import AzureKeyCredential
 
 from app.config import settings
 from app.graph.prompts import (
@@ -38,31 +35,9 @@ def _strip_code_fence(text: str) -> str:
     return _CODE_FENCE_RE.sub("", text.strip()).strip()
 
 
-_github_client = None
-
-
-def _get_github_client() -> ChatCompletionsClient:
-    # Built lazily (not at import time) so importing this module doesn't
-    # require GITHUB_TOKEN to be set when Gemini is the active provider.
-    global _github_client
-    if _github_client is None:
-        _github_client = ChatCompletionsClient(
-            endpoint=settings.github_endpoint,
-            credential=AzureKeyCredential(settings.github_token),
-        )
-    return _github_client
-
-
-def _chat_github(prompt: str) -> str:
-    response = _get_github_client().complete(
-        messages=[UserMessage(content=prompt)],
-        model=settings.chat_model,
-        temperature=0.3,
-    )
-    return response.choices[0].message.content.strip()
-
-
-def _chat_gemini(prompt: str) -> str:
+def _chat(prompt: str) -> str:
+    """Calls the Gemini API (plain HTTP - its REST API is simple enough not
+    to need a client library)."""
     response = httpx.post(
         f"{settings.gemini_base_url}/{settings.chat_model}:generateContent",
         headers={
@@ -79,19 +54,6 @@ def _chat_gemini(prompt: str) -> str:
         logger.error("Gemini API error %s: %s", response.status_code, response.text)
     response.raise_for_status()
     return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-
-def _chat(prompt: str) -> str:
-    """Calls whichever LLM provider is configured (GitHub Models takes
-    priority over Gemini if both are set - see app/config.py).
-
-    GitHub Models uses the Azure AI Inference SDK (raw HTTP to that endpoint
-    wasn't reliable); Gemini uses a plain HTTP call since its REST API is
-    simple enough not to need a client library.
-    """
-    if settings.llm_provider == "github":
-        return _chat_github(prompt)
-    return _chat_gemini(prompt)
 
 
 def summarize(state: EmailState) -> dict:

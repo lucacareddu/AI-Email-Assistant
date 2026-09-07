@@ -14,36 +14,13 @@ def _require(name: str) -> str:
 
 
 class Settings:
-    # --- GitHub Models (LLM) ---
-    github_token: str = os.environ.get("GITHUB_TOKEN", "")
-    # GitHub Models via the Azure AI Inference SDK (raw HTTP to this endpoint
-    # wasn't working reliably - the SDK handles auth/redirects correctly).
-    github_endpoint: str = os.environ.get("GITHUB_ENDPOINT", "https://models.inference.ai.azure.com")
-
     # --- Gemini API (Google AI Studio) ---
-    gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
+    # GitHub Models used to be a supported alternative provider here, but
+    # GitHub discontinued it - Gemini is the only provider now.
+    gemini_api_key: str = _require("GEMINI_API_KEY")
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/models"
-
-    if not github_token and not gemini_api_key:
-        raise RuntimeError("Set GITHUB_TOKEN or GEMINI_API_KEY (or both) in .env")
-
-    # If both are set, GitHub Models takes priority.
-    llm_provider: str = "github" if github_token else "gemini"
-    print(
-        f"[config] LLM provider: {llm_provider} "
-        f"(GITHUB_TOKEN {'set' if github_token else 'NOT set'}, "
-        f"GEMINI_API_KEY {'set' if gemini_api_key else 'NOT set'})"
-    )
-
-    # Model names come entirely from env vars - no hardcoded fallback model
-    # name here. Only the active provider's vars are required; the other
-    # provider's are irrelevant if you're not using it.
-    if llm_provider == "github":
-        chat_model: str = _require("GITHUB_CHAT_MODEL")
-        embedding_model: str = _require("GITHUB_EMBEDDING_MODEL")
-    else:
-        chat_model: str = _require("GEMINI_CHAT_MODEL")
-        embedding_model: str = _require("GEMINI_EMBEDDING_MODEL")
+    chat_model: str = _require("GEMINI_CHAT_MODEL")
+    embedding_model: str = _require("GEMINI_EMBEDDING_MODEL")
 
     # --- Postgres (set USE_POSTGRES=false to use in-memory storage instead -
     # no DB needed, but data is lost on restart) ---
