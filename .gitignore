@@ -1,8 +1,10 @@
 .env
 test_postgres.py
 .venv
+.claude
 node_modules
 package*
 *.pdf
 chroma_db
+.pytest_cache
 __pycache__
