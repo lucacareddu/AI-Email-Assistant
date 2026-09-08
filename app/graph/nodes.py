@@ -30,14 +30,12 @@ _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
 def _strip_code_fence(text: str) -> str:
-    """Gemini sometimes wraps JSON answers in ```json ... ``` even when asked
-    not to. Strip that before calling json.loads, instead of just giving up."""
+    """Strips Gemini's occasional ```json ... ``` wrapping before json.loads."""
     return _CODE_FENCE_RE.sub("", text.strip()).strip()
 
 
 def _chat(prompt: str) -> str:
-    """Calls the Gemini API (plain HTTP - its REST API is simple enough not
-    to need a client library)."""
+    """Plain-text Gemini call."""
     response = httpx.post(
         f"{settings.gemini_base_url}/{settings.chat_model}:generateContent",
         headers={
@@ -57,9 +55,7 @@ def _chat(prompt: str) -> str:
 
 
 def _chat_json(prompt: str, schema: dict) -> dict:
-    """Like _chat, but constrains Gemini's response to the given JSON schema
-    (Gemini's native structured-output support), instead of asking for JSON
-    in the prompt text and hoping the model complies."""
+    """Gemini call constrained to a JSON schema (native structured output)."""
     response = httpx.post(
         f"{settings.gemini_base_url}/{settings.chat_model}:generateContent",
         headers={
@@ -84,9 +80,7 @@ def _chat_json(prompt: str, schema: dict) -> dict:
 
 
 def summarize_and_classify(state: EmailState) -> dict:
-    """Summarize and classify in one call - classify only ever needed the
-    subject and the summary this same call just produced, so there was no
-    reason to make it a separate LLM round-trip."""
+    """Summarize and classify in one LLM call instead of two."""
     start = time.perf_counter()
     result = _chat_json(
         SUMMARIZE_AND_CLASSIFY_PROMPT.format(subject=state["subject"], body=state["body"]),
@@ -101,23 +95,12 @@ def summarize_and_classify(state: EmailState) -> dict:
 
 
 def route_entry(state: EmailState) -> str:
-    """Entry point router. A plain /email run (or a fresh regenerate flag
-    unset) starts the full pipeline; a /approve regenerate - same thread,
-    admin tip or not - starts straight at "generate" instead. The email's
-    subject/body haven't changed, so there's no reason to re-summarize,
-    re-classify, re-recall this sender's history or re-run RAG retrieval on
-    every tip iteration - Gemini's free tier has real per-minute request
-    limits, and none of those four calls would produce a different result
-    anyway. summary/category/context/sender_memory are simply resumed
-    unchanged from this thread's last checkpoint (see app/api/main.py)."""
+    """Regenerate skips straight to "generate"; everything else runs full."""
     return "generate" if state.get("regenerate") else "summarize_and_classify"
 
 
 def recall_memory(state: EmailState) -> dict:
-    """Cross-session recall: pull whatever we remember about this sender from
-    *previous*, separate emails (see app/services/memory.py). This is not the
-    in-session/thread state LangGraph already carries between the nodes below
-    - it's memory that outlives this one thread entirely."""
+    """Cross-session recall of this sender's previous, separate emails."""
     start = time.perf_counter()
     memory = recall_sender_memory(state["sender"])
     logger.info(

@@ -22,9 +22,7 @@ def build_graph():
     graph.add_node("generate", generate)
     graph.add_node("review", review)
 
-    # A plain /email run enters at "summarize_and_classify" as always; a
-    # /approve regenerate (see app/api/main.py) enters straight at
-    # "generate" instead - see route_entry's docstring for why.
+    # Regenerate enters straight at "generate" (see route_entry).
     graph.set_conditional_entry_point(
         route_entry, {"summarize_and_classify": "summarize_and_classify", "generate": "generate"}
     )
@@ -37,23 +35,12 @@ def build_graph():
     # always ending — this is the bit that's actually worth showing a
     # recruiter: it's not just a linear chain.
     #
-    # Note there's no "remember" node here: this graph re-runs from its entry
-    # point on every /approve regenerate too (same thread_id, admin tips or
-    # not - see app/api/main.py), so "review passed" happens once per
-    # iteration, not once per email. Writing cross-session memory here would
-    # both spam a sender's history with one entry per iteration and, worse,
-    # have recall_memory read back an in-progress email as if it were a past
-    # one. remember_sender_interaction() is instead called directly from
-    # handle_approval() only once the email reaches a terminal state
-    # (approve/reject) - see app/api/main.py.
+    # No "remember" node here - cross-session memory is written once from
+    # handle_approval() in app/api/main.py, not once per regenerate iteration.
     graph.add_conditional_edges("review", needs_revision, {"generate": "generate", "end": END})
 
-    # checkpointer = in-session memory, keyed by the thread_id passed at
-    # invoke() time (one thread per email - see app/api/main.py). store =
-    # cross-session memory, keyed by sender address (see app/services/memory.py,
-    # used directly by recall_memory above and by handle_approval() in
-    # app/api/main.py). Both are Postgres-backed or in-process depending on
-    # USE_POSTGRES.
+    # checkpointer = in-session (thread_id) memory; store = cross-session
+    # (sender-keyed) memory - see app/services/memory.py.
     return graph.compile(checkpointer=checkpointer, store=store)
 
 

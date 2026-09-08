@@ -254,7 +254,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// The id is embedded in the draft message itself (Send Telegram Approval\n// Message), as \"[ID: <id>]\" - pull it back out of reply_to_message.text.\nconst item = $('Filter New Updates1').item.json;\nconst originalText = item.message.reply_to_message.text || '';\nconst match = originalText.match(/\\[ID: (\\d+)\\]/);\nconst emailId = match ? match[1] : null;\n\nconst tip = (item.message.text || '').trim();\n\nreturn [{ json: { id: emailId, notes: tip } }];"
+        "jsCode": "// id is embedded in the draft message as \"[ID: <id>]\"\nconst item = $('Filter New Updates1').item.json;\nconst originalText = item.message.reply_to_message.text || '';\nconst match = originalText.match(/\\[ID: (\\d+)\\]/);\nconst emailId = match ? match[1] : null;\n\nconst tip = (item.message.text || '').trim();\n\nreturn [{ json: { id: emailId, notes: tip } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

@@ -86,11 +86,7 @@ def test_reject_also_writes_sender_memory():
 
 
 def test_regenerate_does_not_write_sender_memory():
-    """regenerate re-runs the graph on the same thread every time the admin
-    iterates - writing cross-session memory here (instead of once at
-    approve/reject) would both spam the sender's history with one entry per
-    iteration and have the next iteration's recall read back this same
-    still-in-progress email as if it were a past one."""
+    """Memory is written once at approve/reject, not per regenerate iteration."""
     record = create_email(sender="a@b.com", subject="hi", body="hello")
     fake_result = {"draft": "new draft", "category": "support"}
 

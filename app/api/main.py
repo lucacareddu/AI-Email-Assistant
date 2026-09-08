@@ -27,22 +27,12 @@ def startup():
 
 
 def _thread_config(email_id: int) -> dict:
-    """One LangGraph thread per email - shared by the initial /email run and
-    any later /approve regenerate calls for that same email, so the
-    checkpointer's in-session history stays scoped to one conversation."""
+    """One LangGraph thread per email, shared across regenerate calls."""
     return {"configurable": {"thread_id": str(email_id)}}
 
 
 def _remember(record: dict) -> None:
-    """Cross-session write-back, called once an email reaches a terminal
-    state (approve/reject) - not on every /approve regenerate. regenerate
-    re-runs the graph from its entry point on the *same* thread (admin tips
-    or not), so "the draft passed review" happens once per iteration, not
-    once per email; writing memory there would both spam a sender's history
-    with one entry per iteration and have the next iteration's recall read
-    back an email that's still in progress as if it were a past one. This is
-    what recall_memory (app/graph/nodes.py) reads back on that sender's
-    *next, separate* email."""
+    """Cross-session write-back, called once per email at a terminal state."""
     entry = f"Oggetto: {record['subject']} | Categoria: {record.get('category', 'other')} | Riassunto: {record.get('summary', '')}"
     remember_sender_interaction(record["sender"], entry)
     logger.info("[email %s] sender memory updated for %s", record["id"], record["sender"])
@@ -94,11 +84,7 @@ DEFAULT_REGENERATE_NOTE = "Il revisore umano ha richiesto una versione diversa."
 class ApproveRequest(BaseModel):
     id: int
     action: str  # approve | reject | regenerate
-    # Optional admin-supplied tips for a "regenerate" (e.g. sent as a Telegram
-    # reply to the draft - see n8n_workflows/). Ignored for approve/reject.
-    # Falls back to DEFAULT_REGENERATE_NOTE below when absent/blank, so
-    # regenerate still works exactly as before when nobody gives a tip.
-    notes: Optional[str] = None
+    notes: Optional[str] = None  # optional admin tip for regenerate; falls back to default
 
 
 @app.post("/email")
@@ -177,13 +163,7 @@ def handle_approval(
             "[email %s] regenerate requested (%s), re-running the graph",
             payload.id, f"admin tip: {admin_tip}" if admin_tip else "no tip, using default",
         )
-        # sender/subject/body/summary/category/context/sender_memory aren't
-        # passed here - the checkpointer resumes them from this thread's last
-        # checkpoint (see _thread_config), so this only needs to supply
-        # what's actually changing for the new run. "regenerate": True also
-        # routes the graph straight to "generate" (see route_entry in
-        # app/graph/nodes.py), skipping a re-summarize/re-classify/re-recall/
-        # re-retrieve that would just reproduce the same result.
+        # Other fields resume from the checkpoint; "regenerate" routes to "generate".
         result = email_graph.invoke(
             {
                 "review_attempts": 0,

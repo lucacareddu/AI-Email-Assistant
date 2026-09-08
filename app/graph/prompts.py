@@ -8,9 +8,7 @@ Fai due cose:
 1. Riassumi in massimo 2 frasi il contenuto dell'email, mantenendo solo i fatti rilevanti.
 2. Classifica l'email in UNA sola di queste categorie: support, sales, billing, other."""
 
-# Gemini structured output (responseSchema) - the model is constrained to this
-# shape, so summarize_and_classify() never has to guess-parse free text for
-# the category the way review() still does for its score/notes.
+# Gemini structured output - constrains the model to this exact shape.
 SUMMARIZE_AND_CLASSIFY_SCHEMA = {
     "type": "OBJECT",
     "properties": {

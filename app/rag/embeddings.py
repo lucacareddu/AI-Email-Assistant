@@ -32,12 +32,7 @@ def _embed_gemini(texts: list[str]) -> list[list[float]]:
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    """Embeds via the Gemini API.
-
-    Results are cached (Redis or in-memory, see app/services/cache.py) keyed
-    by text+model, so re-ingesting unchanged document chunks doesn't re-call
-    the embeddings API for them.
-    """
+    """Embeds via the Gemini API, cached by text+model (see services/cache.py)."""
     keys = [cache.embedding_cache_key(text, settings.embedding_model) for text in texts]
     cached_values = [cache.cache_get(key) for key in keys]
 
