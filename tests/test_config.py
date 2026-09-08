@@ -21,11 +21,16 @@ _PROVIDER_KEYS = ["GEMINI_API_KEY", "GEMINI_CHAT_MODEL", "GEMINI_EMBEDDING_MODEL
 
 def _reload_config():
     """importlib.reload(config_module) re-runs config.py top to bottom,
-    including load_dotenv() - which would silently refill any var a test just
-    popped from os.environ straight back out of the real project .env file.
-    Patched out here so "pop this var" reliably means "this var is unset" for
-    every reload in this file."""
-    with patch("app.config.load_dotenv"):
+    including its `from dotenv import load_dotenv` line - which reload
+    re-executes too, rebinding the name fresh each time. Patching
+    "app.config.load_dotenv" therefore doesn't survive a reload (the
+    re-executed import immediately overwrites the patch with the real
+    function again, before it's ever called); patching "dotenv.load_dotenv"
+    at the source does, since that fresh rebind picks up the patched
+    version too. Without this, load_dotenv() would silently refill any var a
+    test just popped from os.environ straight back out of the real project
+    .env file."""
+    with patch("dotenv.load_dotenv"):
         importlib.reload(config_module)
 
 

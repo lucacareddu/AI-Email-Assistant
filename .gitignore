@@ -1,6 +1,5 @@
 .env
 test_postgres.py
-refresh_token.py
 .venv
 node_modules
 package*
