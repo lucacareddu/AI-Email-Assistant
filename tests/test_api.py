@@ -11,7 +11,7 @@ HEADERS = {"X-Webhook-Token": "test-webhook-token"}
 def test_approve_rejects_wrong_token():
     with TestClient(app) as client:
         r = client.post(
-            "/approve", json={"id": 1, "action": "reject"},
+            "/approve", json={"id": 1, "action": "refuse"},
             headers={"X-Webhook-Token": "wrong"},
         )
         assert r.status_code == 401
@@ -19,7 +19,7 @@ def test_approve_rejects_wrong_token():
 
 def test_approve_unknown_id_returns_404():
     with TestClient(app) as client:
-        r = client.post("/approve", json={"id": 999999, "action": "reject"}, headers=HEADERS)
+        r = client.post("/approve", json={"id": 999999, "action": "refuse"}, headers=HEADERS)
         assert r.status_code == 404
 
 
@@ -53,15 +53,15 @@ def test_approve_action_sends_via_gmail_and_marks_sent():
         mock_send.assert_called_once()
 
 
-def test_approve_action_rejects_and_marks_rejected():
+def test_approve_action_refuses_and_marks_refused():
     record = create_email(sender="a@b.com", subject="hi", body="hello")
 
     with TestClient(app) as client:
         r = client.post(
-            "/approve", json={"id": record["id"], "action": "reject"}, headers=HEADERS,
+            "/approve", json={"id": record["id"], "action": "refuse"}, headers=HEADERS,
         )
         assert r.status_code == 200
-        assert r.json()["status"] == "rejected"
+        assert r.json()["status"] == "refused"
 
 
 def test_approve_writes_sender_memory_once():
@@ -75,18 +75,18 @@ def test_approve_writes_sender_memory_once():
         assert mock_remember.call_args.args[0] == "remember-me@example.com"
 
 
-def test_reject_also_writes_sender_memory():
+def test_refuse_also_writes_sender_memory():
     record = create_email(sender="remember-me-too@example.com", subject="hi", body="hello")
 
     with TestClient(app) as client, patch("app.api.main.remember_sender_interaction") as mock_remember:
-        client.post("/approve", json={"id": record["id"], "action": "reject"}, headers=HEADERS)
+        client.post("/approve", json={"id": record["id"], "action": "refuse"}, headers=HEADERS)
 
         mock_remember.assert_called_once()
         assert mock_remember.call_args.args[0] == "remember-me-too@example.com"
 
 
 def test_regenerate_does_not_write_sender_memory():
-    """Memory is written once at approve/reject, not per regenerate iteration."""
+    """Memory is written once at approve/refuse, not per regenerate iteration."""
     record = create_email(sender="a@b.com", subject="hi", body="hello")
     fake_result = {"draft": "new draft", "category": "support"}
 

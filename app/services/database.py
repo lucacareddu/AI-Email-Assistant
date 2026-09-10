@@ -27,7 +27,7 @@ if settings.use_postgres:
         category = Column(String)
         draft = Column(Text)
         review_notes = Column(Text)
-        status = Column(String, default="pending")  # pending | sent | rejected
+        status = Column(String, default="pending")  # pending | sent | refused
 
         created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
         updated_at = Column(

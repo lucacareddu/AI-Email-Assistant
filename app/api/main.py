@@ -83,7 +83,7 @@ DEFAULT_REGENERATE_NOTE = "Il revisore umano ha richiesto una versione diversa."
 
 class ApproveRequest(BaseModel):
     id: int
-    action: str  # approve | reject | regenerate
+    action: str  # approve | refuse | regenerate
     notes: Optional[str] = None  # optional admin tip for regenerate; falls back to default
 
 
@@ -151,10 +151,10 @@ def handle_approval(
         _remember(record)
         logger.info("[email %s] reply sent via Gmail API", payload.id)
 
-    elif payload.action == "reject":
-        record = update_email(payload.id, status="rejected")
+    elif payload.action == "refuse":
+        record = update_email(payload.id, status="refused")
         _remember(record)
-        logger.info("[email %s] rejected by reviewer", payload.id)
+        logger.info("[email %s] refused by reviewer", payload.id)
 
     elif payload.action == "regenerate":
         admin_tip = (payload.notes or "").strip()
