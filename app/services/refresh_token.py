@@ -35,7 +35,7 @@ def main():
     }
 
     flow = InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
-    credentials = flow.run_local_server(port=0)  # opens browser, captures result locally
+    credentials = flow.run_local_server(port=8080)  # opens browser, captures result locally
 
     print("\nDone. Put these in your .env:\n")
     print(f"GMAIL_CLIENT_ID={client_id}")
