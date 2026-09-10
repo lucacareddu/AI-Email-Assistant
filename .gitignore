@@ -1,5 +1,7 @@
 .env
 test_postgres.py
+inspect_db.py
+inspect_redis.py
 .venv
 .claude
 node_modules
