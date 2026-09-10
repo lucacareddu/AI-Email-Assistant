@@ -9,7 +9,7 @@ thing is glued together with **n8n**.
 Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_and_classify → recall → retrieve → generate → review)
                                                                                   │
                                                                                   ▼
-                                                          Telegram message (Approve / Reject / Regenerate)
+                                                          Telegram message (Approve / Refuse / Regenerate)
                                                                                   │
                                                                                   ▼
                                               n8n: Workflow 2 ──▶ FastAPI ──▶ Gmail API (send) / Postgres
@@ -20,7 +20,10 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_an
 - **LangGraph isn't a single node.** `summarize_and_classify → recall → retrieve → generate → review`
   is a real graph, not a chain: the `review` node can loop back to `generate` (up to twice)
   if the model scores its own draft below 7/10. That's the one part of this project worth
-  pointing at in an interview — it's not just "call an LLM once".
+  pointing at in an interview — it's not just "call an LLM once". On a loop-back (and on a
+  `/approve` regenerate) `generate` swaps `GENERATE_PROMPT` for a dedicated `REVISE_PROMPT`
+  that carries the previous draft plus the reviewer's notes, so the model edits rather than
+  rewrites blind.
 - **Two entry points, not one.** A fresh email enters at `summarize_and_classify` as
   usual; a `/approve` regenerate (admin tips or not) enters straight at `generate`
   instead (`route_entry` in `app/graph/nodes.py`, picked via
@@ -31,12 +34,16 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_an
   LLM calls plus 1 embedding call (summarize+classify, generate, review, retrieve); now
   it's 2 (generate, review).
 - **Two kinds of memory, on top of the graph.** A LangGraph *checkpointer*
-  (`app/services/memory.py`) gives every email its own `thread_id`, so the
-  initial draft and any later "regenerate" request (admin tips or not - see
-  below) are the same in-session conversation as far as LangGraph is
-  concerned, replayed on the same thread instead of two unrelated calls the
-  API has to manually stitch back together. A LangGraph *store*, keyed by
-  sender address instead of thread_id, gives cross-session memory: the
+  (`app/services/memory.py`) persists the whole graph *state* under a
+  `thread_id` = email id. It's not LLM chat history - each `_chat()` call sends
+  a single prompt, no prior turns - but it's what lets the `/approve` regenerate
+  pass only `review_notes` + the regenerate flag and get `subject`, `body`,
+  `category`, the RAG `context`, `sender_memory` and the previous `draft` back
+  from the checkpoint. `context` and `sender_memory` aren't stored in the DB, so
+  without this the regenerate path couldn't re-enter at `generate` - it'd have to
+  re-run summarize/classify/recall/retrieve (1 LLM + 1 embedding + 1 vector query
+  per iteration, which the Gemini free tier notices). A LangGraph *store*, keyed
+  by sender address instead of thread_id, gives cross-session memory: the
   `recall_memory` node reads a short rolling history per sender before every
   draft, so a reply can reflect *previous, separate* emails from the same
   person. Writing that history back is deliberately *not* a graph node,
@@ -44,7 +51,7 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_an
   the admin iterates, so "the draft passed review" happens once per
   iteration, not once per email; `handle_approval()` in `app/api/main.py`
   calls it once instead, only when the email reaches a terminal state
-  (approve/reject). Both are Postgres-backed (same `USE_POSTGRES` toggle as
+  (approve/refuse). Both are Postgres-backed (same `USE_POSTGRES` toggle as
   everything else) or in-process for a quick demo.
 - **RAG is a local Chroma store**, populated by `app/rag/ingest.py` from PDFs dropped in
   `documents/`. No extra infra, no Docker needed for it.
@@ -53,7 +60,7 @@ Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_an
   again. This keeps the interesting code testable and out of no-code nodes.
 - **FastAPI sends the final Gmail reply itself** (via the Gmail API, with a refresh
   token), not n8n — so the "send" action is auditable and tied to the same record in
-  Postgres that tracks status (`pending` / `sent` / `rejected`).
+  Postgres that tracks status (`pending` / `sent` / `refused`).
 
 ## n8n node choices (based on your existing workflow)
 
@@ -65,10 +72,13 @@ Looking at `My workflow.json`, two patterns were clear and I kept them:
 2. **HTTP Request node instead of relying on Telegram's own polling/trigger
    mechanics.** Your original workflow already did this for `getUpdates` — I kept the
    exact same `Schedule Trigger → HTTP Request → Code → If` shape for catching button
-   presses in Workflow 2, just widened it to track *all* new updates instead of only
-   the last one (so quick double-taps aren't dropped), and switched it to use
-   `callback_query` (button presses) instead of plain text messages.
-3. **Inline keyboards (Approve/Reject/Regenerate) are sent via a raw HTTP Request to
+   presses and reply-tips in Workflow 2. `getUpdates` is called with a stored
+   `offset` (workflow static data, bumped past the highest `update_id` each poll) so
+   Telegram confirms and stops resending updates — otherwise every tap gets
+   reprocessed on the next 5s poll. **This means Workflow 2 must be Active**: static
+   data isn't persisted for manual "Test workflow" runs, so in test mode the same
+   update replays every poll.
+3. **Inline keyboards (Approve/Refuse/Regenerate) are sent via a raw HTTP Request to
    Telegram's `sendMessage` endpoint**, not the native Telegram node. This isn't just
    following your preference — n8n's Telegram node has known issues with dynamically
    built inline keyboards (expressions get serialized as strings instead of arrays),
@@ -140,6 +150,34 @@ Import `n8n_workflows/AI Email Assistant - 3.json` (both workflows - new email �
 draft, and the Telegram approval loop - live in this one file, on separate
 trigger branches).
 
+### Running n8n locally
+
+n8n is a Node app and isn't installed globally here - it's run on demand with
+`npx` against the Node that ships in the project's virtualenv (`nodeenv` puts a
+full Node distribution under `.venv/bin/node/`). Put that Node on `PATH` first so
+`npx`/`n8n` resolve to it:
+
+```bash
+source .venv/bin/activate
+export PATH="$PWD/.venv/bin/node/bin:$PATH"   # add before $PATH so it wins
+node --version   # sanity check
+```
+
+Start n8n with the project `.env` loaded into its environment (n8n reads
+`API_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, etc. from there):
+
+```bash
+npx dotenv-cli -e .env -- npx n8n
+```
+
+This serves the editor at `http://localhost:5678`. The first run creates the
+owner account; if you're locked out or want to wipe the local owner/users (e.g.
+sharing the instance or resetting a demo), reset user management and restart:
+
+```bash
+npx n8n user-management:reset
+```
+
 Set these n8n environment variables (Settings → Variables, or your `.env` if
 self-hosting):
 
@@ -156,14 +194,21 @@ Plus two n8n **credentials**:
 - **Gmail OAuth2** (`Gmail account`) — used only by the Gmail Trigger in Workflow 1 to
   *watch* the inbox (the actual *send* happens in FastAPI, not n8n).
 
-**Regenerate with admin tips:** tapping 🔄 Regenerate still regenerates immediately with
-the default review note, exactly as before - that path is untouched. Separately, the
-admin can *reply* (Telegram's native reply-to-message gesture) to the bot's draft
-message with free-text tips or preferences; the draft message carries its email id
-inline (`[ID: ...]`) so the reply can be traced back to it without any extra state. That
-reply is forwarded as `notes` on `/approve` and used as the reviewer's note for that
-regeneration - no button tap needed for the tips path. Preferences are entirely
-optional: no reply means the default regeneration whenever Regenerate is tapped.
+**The approval loop iterates until a terminal choice.** Every regeneration (button or
+reply-with-tips) posts the new draft back to Telegram as a fresh approval message,
+with the same 3-button keyboard and `[ID: ...]` marker, so it can be approved,
+refused or regenerated again - as many rounds as needed. Only ✅ Approve (sends the
+email via the Gmail API) and 🚫 Refuse (drops it, never answered) are terminal; both
+write the sender-memory entry once, at that point.
+
+**Regenerate with admin tips:** tapping 🔄 Regenerate regenerates immediately with
+the default review note. To steer it, reply to the draft message with free-text tips -
+the initial draft says so in its text; every *regenerated* draft is additionally
+followed by a short `force_reply` prompt (input box opens pre-focused) so the next
+round needs no long-press. Either way the reply is forwarded as `notes` on `/approve`
+and used as that regeneration's reviewer note; the `[ID: ...]` marker in the message
+being replied to traces it back to the email with no extra state. The prompt is a
+separate message because `force_reply` and an inline keyboard can't share one.
 
 ## Docker (optional)
 
@@ -176,6 +221,15 @@ docker compose up app
 
 # bring up Postgres and/or Redis alongside it
 docker compose --profile postgres --profile redis up
+
+# rebuild the image after changing code or requirements.txt
+docker compose build app
+docker compose up --build app          # rebuild + run in one step
+
+# stop and remove the containers (add -v to also drop the named volumes:
+# Postgres data, Redis data, the Chroma index)
+docker compose --profile postgres --profile redis down
+docker compose --profile postgres --profile redis down -v
 ```
 
 `docker-compose.yml` lives at the repo root, alongside the `Dockerfile` it builds
