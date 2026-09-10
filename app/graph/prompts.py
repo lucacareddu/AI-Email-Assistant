@@ -37,8 +37,31 @@ Contesto recuperato dalla documentazione aziendale:
 Memoria di email precedenti ricevute da questo stesso mittente (ignora se non rilevante):
 {sender_memory}
 
-{revision_note}
+Scrivi solo il corpo della risposta email, senza oggetto e senza firma."""
 
+
+REVISE_PROMPT = """Sei l'assistente email di un'azienda. Hai già scritto una bozza di risposta
+all'email del cliente; ora devi rivederla seguendo le indicazioni del revisore.
+
+Email del cliente (oggetto: {subject}):
+{body}
+
+Categoria: {category}
+
+Contesto recuperato dalla documentazione aziendale:
+{context}
+
+Memoria di email precedenti ricevute da questo stesso mittente (ignora se non rilevante):
+{sender_memory}
+
+Bozza precedente da correggere:
+{previous_draft}
+
+=== INDICAZIONI DEL REVISORE (hanno la priorità: applicale tutte) ===
+{review_notes}
+=== FINE INDICAZIONI DEL REVISORE ===
+
+Riscrivi la bozza applicando le indicazioni qui sopra, conservando ciò che già va bene.
 Scrivi solo il corpo della risposta email, senza oggetto e senza firma."""
 
 

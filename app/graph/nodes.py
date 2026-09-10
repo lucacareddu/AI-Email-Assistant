@@ -9,6 +9,7 @@ from app.config import settings
 from app.graph.prompts import (
     GENERATE_PROMPT,
     REVIEW_PROMPT,
+    REVISE_PROMPT,
     SUMMARIZE_AND_CLASSIFY_PROMPT,
     SUMMARIZE_AND_CLASSIFY_SCHEMA,
 )
@@ -129,25 +130,28 @@ def retrieve(state: EmailState) -> dict:
 
 
 def generate(state: EmailState) -> dict:
+    """First pass uses GENERATE_PROMPT; a review loop-back or a /approve regenerate
+    (both carry review_notes + a prior draft) uses REVISE_PROMPT instead."""
     start = time.perf_counter()
-    revision_note = (
-        f"Nota del revisore, correggi questi aspetti: {state['review_notes']}"
-        if state.get("review_notes")
-        else ""
+    fields = dict(
+        subject=state["subject"],
+        body=state["body"],
+        category=state.get("category", "other"),
+        context=state.get("context", ""),
+        sender_memory=state.get("sender_memory") or "Nessuna interazione precedente nota.",
     )
-    draft = _chat(
-        GENERATE_PROMPT.format(
-            subject=state["subject"],
-            body=state["body"],
-            category=state.get("category", "other"),
-            context=state.get("context", ""),
-            sender_memory=state.get("sender_memory") or "Nessuna interazione precedente nota.",
-            revision_note=revision_note,
-        )
-    )
+    review_notes, previous_draft = state.get("review_notes"), state.get("draft")
+    if review_notes and previous_draft:
+        mode = "revise"
+        prompt = REVISE_PROMPT.format(previous_draft=previous_draft, review_notes=review_notes, **fields)
+    else:
+        mode = "generate"
+        prompt = GENERATE_PROMPT.format(**fields)
+
+    draft = _chat(prompt)
     logger.info(
-        "[email %s] generate done in %.2fs (attempt %d) -> %s",
-        state.get("email_id"), time.perf_counter() - start,
+        "[email %s] %s done in %.2fs (attempt %d) -> %s",
+        state.get("email_id"), mode, time.perf_counter() - start,
         state.get("review_attempts", 0) + 1, _short(draft),
     )
     return {"draft": draft}
