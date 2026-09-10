@@ -63,7 +63,7 @@
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($env.TELEGRAM_CHAT_ID) }},\n  \"text\": {{ JSON.stringify(\n      \"Nuova email\\n\\n\" +\n      \"Da: \" + $('Gmail Trigger').item.json.from + \"\\n\" +\n      \"Oggetto: \" + $('Gmail Trigger').item.json.subject + \"\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\" +\n      \"Riassunto: \" + $json.summary + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft + \"\\n\\n[ID: \" + $json.id + \"]\\n\" +\n      \"(Rispondi a questo messaggio con le tue indicazioni per rigenerare la bozza.)\"\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"❌ Reject\", \"callback_data\": \"{{ $json.id }}:reject\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($env.TELEGRAM_CHAT_ID) }},\n  \"text\": {{ JSON.stringify(\n      \"Nuova email\\n\\n\" +\n      \"Da: \" + $('Gmail Trigger').item.json.from + \"\\n\" +\n      \"Oggetto: \" + $('Gmail Trigger').item.json.subject + \"\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\" +\n      \"Riassunto: \" + $json.summary + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft + \"\\n\\n[ID: \" + $json.id + \"]\\n\" +\n      \"(Per rigenerare con le tue indicazioni, rispondi a questo messaggio.)\"\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"🚫 Refuse\", \"callback_data\": \"{{ $json.id }}:refuse\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -97,7 +97,7 @@
     },
     {
       "parameters": {
-        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates?offset=-1&limit=1&allowed_updates=%5B%22message%22%2C%20%22callback_query%22%5D",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates?timeout=0&offset={{ $json.offset }}&allowed_updates=%5B%22message%22%2C%22callback_query%22%5D",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -111,7 +111,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Keeps track of the last processed update_id across executions,\n// the same way the original workflow did, but here we keep every\n// new update (not just the last one) so quick double-taps on the\n// Telegram buttons aren't dropped between polls.\nconst staticData = $getWorkflowStaticData('global');\nconst items = $input.all();\n\nif (items.length === 0 || !items[0].json.result) {\n  return [];\n}\n\nconst updates = items[0].json.result;\nconst lastId = staticData.lastUpdateId || 0;\n\nconst newUpdates = updates.filter((u) => u.update_id > lastId);\nif (newUpdates.length === 0) {\n  return [];\n}\n\nstaticData.lastUpdateId = Math.max(...updates.map((u) => u.update_id));\n\n// One item per update, so the next node can filter button presses\n// (callback_query) and ignore plain text messages.\nreturn newUpdates.map((u) => ({ json: u }));"
+        "jsCode": "// Telegram resends every update until it is confirmed by the next\n// getUpdates offset; we advance the stored offset past the highest id\n// we just saw so nothing is ever processed twice.\nconst staticData = $getWorkflowStaticData('global');\nconst result = $input.first()?.json?.result;\nif (!result || result.length === 0) {\n  return [];\n}\n\nstaticData.tgOffset = Math.max(...result.map((u) => u.update_id)) + 1;\n\nreturn result.map((u) => ({ json: u }));"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -199,7 +199,7 @@
     {
       "parameters": {
         "chatId": "={{ $('Filter New Updates1').item.json.callback_query.message.chat.id }}",
-        "text": "={{ $json.status === 'sent' ? '✅ Email inviata.' : $json.status === 'rejected' ? '❌ Bozza rifiutata.' : 'Nuova bozza generata:\\n\\n' + $json.draft }}",
+        "text": "={{ $json.status === 'sent' ? '✅ Email inviata.' : '🚫 Email rifiutata.' }}",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.telegram",
@@ -292,25 +292,86 @@
       }
     },
     {
-      "parameters": {
-        "chatId": "={{ $('Filter New Updates1').item.json.message.chat.id }}",
-        "text": "={{ $json.status === 'sent' ? '✅ Email inviata.' : $json.status === 'rejected' ? '❌ Bozza rifiutata.' : 'Nuova bozza generata (con le tue indicazioni):\\n\\n' + $json.draft }}",
-        "additionalFields": {}
-      },
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
       "position": [
-        1344,
-        560
+        1560,
+        400
       ],
-      "id": "35b24ca2-f462-48f9-be01-cf3f082db84e",
-      "name": "Send Confirmation (Tip)1",
-      "webhookId": "8e3d8d8f-91b7-4920-9330-463201384d42",
-      "credentials": {
-        "telegramApi": {
-          "id": "8EiuVyHAME8bxi3U",
-          "name": "Telegram account"
-        }
+      "id": "9c6a0e79-45a0-476b-9556-f11d71f50a4f",
+      "name": "Send Regenerated Approval Message",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($('Filter New Updates1').item.json.callback_query?.message?.chat?.id ?? $('Filter New Updates1').item.json.message.chat.id) }},\n  \"text\": {{ JSON.stringify(\n      \"Bozza rigenerata\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft + \"\\n\\n[ID: \" + $json.id + \"]\"\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"🚫 Refuse\", \"callback_data\": \"{{ $json.id }}:refuse\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
+        "options": {}
+      }
+    },
+    {
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        800,
+        120
+      ],
+      "id": "661212b7-0f08-46b0-9c6e-6edad05d4f7b",
+      "name": "Send Reply Prompt",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.result.chat.id }},\n  \"text\": {{ JSON.stringify(\"💬 Rispondi a questo messaggio con le tue indicazioni per rigenerare la bozza. \" + $json.result.text.match(/\\[ID: \\d+\\]/)[0]) }},\n  \"reply_markup\": {\n    \"force_reply\": true,\n    \"input_field_placeholder\": \"Indicazioni per rigenerare…\"\n  }\n}",
+        "options": {}
+      }
+    },
+    {
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        340
+      ],
+      "id": "66b6fce4-7613-4671-8e86-e8468b5caaf7",
+      "name": "Read Offset1",
+      "parameters": {
+        "jsCode": "// -1 on first run = fetch only the latest update, so activating the\n// workflow skips any backlog of old taps instead of replaying them.\nconst sd = $getWorkflowStaticData('global');\nreturn [{ json: { offset: sd.tgOffset || -1 } }];"
+      }
+    },
+    {
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1320,
+        256
+      ],
+      "id": "bf08c137-14ce-4359-b5a0-853d0fa90233",
+      "name": "Is Draft Pending1",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "76bd07e3-9b6b-4ba1-85dd-f2e99390a9a7",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "pending",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       }
     }
   ],
@@ -342,7 +403,7 @@
       "main": [
         [
           {
-            "node": "Get Telegram Updates1",
+            "node": "Read Offset1",
             "type": "main",
             "index": 0
           }
@@ -404,7 +465,7 @@
       "main": [
         [
           {
-            "node": "Send Confirmation1",
+            "node": "Is Draft Pending1",
             "type": "main",
             "index": 0
           }
@@ -438,7 +499,47 @@
       "main": [
         [
           {
-            "node": "Send Confirmation (Tip)1",
+            "node": "Send Regenerated Approval Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Offset1": {
+      "main": [
+        [
+          {
+            "node": "Get Telegram Updates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Draft Pending1": {
+      "main": [
+        [
+          {
+            "node": "Send Regenerated Approval Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Confirmation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Regenerated Approval Message": {
+      "main": [
+        [
+          {
+            "node": "Send Reply Prompt",
             "type": "main",
             "index": 0
           }
