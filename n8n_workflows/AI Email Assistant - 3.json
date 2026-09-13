@@ -39,7 +39,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"sender\": {{ JSON.stringify($json.from.value[0].address) }},\n  \"subject\": {{ JSON.stringify($json.subject) }},\n  \"body\": {{ JSON.stringify($json.text || $json.snippet) }}\n}",
+        "jsonBody": "={\n  \"sender\": {{ JSON.stringify($json.from.value[0].address) }},\n  \"subject\": {{ JSON.stringify($json.subject) }},\n  \"body\": {{ JSON.stringify($json.text || $json.snippet) }},\n  \"thread_id\": {{ JSON.stringify($json.threadId || null) }},\n  \"message_id\": {{ JSON.stringify((($json.payload?.headers || []).find(h => h.name === 'Message-ID') || {}).value || null) }}\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -63,7 +63,7 @@
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($env.TELEGRAM_CHAT_ID) }},\n  \"text\": {{ JSON.stringify(\n      \"Nuova email\\n\\n\" +\n      \"Da: \" + $('Gmail Trigger').item.json.from + \"\\n\" +\n      \"Oggetto: \" + $('Gmail Trigger').item.json.subject + \"\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\" +\n      \"Riassunto: \" + $json.summary + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft + \"\\n\\n[ID: \" + $json.id + \"]\\n\" +\n      \"(Per rigenerare con le tue indicazioni, rispondi a questo messaggio.)\"\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"🚫 Refuse\", \"callback_data\": \"{{ $json.id }}:refuse\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($env.TELEGRAM_CHAT_ID) }},\n  \"text\": {{ JSON.stringify(\n      (function(){\n        const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\n        return '🆕 <b>Nuova email</b>\\n\\n' +\n          '👤 <b>Da:</b> ' + esc($json.sender) + '\\n' +\n          '📌 <b>Oggetto:</b> ' + esc($json.subject) + '\\n\\n' +\n          '🏷️ <b>Categoria:</b> ' + esc($json.category) + '\\n' +\n          '📝 <b>Riassunto:</b> ' + esc($json.summary) + '\\n\\n' +\n          '✉️ <b>Bozza di risposta:</b>\\n' + esc($json.draft) + '\\n\\n' +\n          '✏️ Per modificare, rispondi a questo messaggio con le tue indicazioni (o con \"-\" per rigenerare senza indicazioni specifiche).\\n\\n' +\n          '<b>[ID: ' + $json.id + ']</b>';\n      })()\n  ) }},\n  \"parse_mode\": \"HTML\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"🚫 Refuse\", \"callback_data\": \"{{ $json.id }}:refuse\"}\n    ]]\n  }\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -168,7 +168,8 @@
         256
       ],
       "id": "062c9005-7b30-4865-8e96-eefd6bd02192",
-      "name": "Answer Callback Query1"
+      "name": "Answer Callback Query1",
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -189,6 +190,7 @@
       ],
       "id": "04acea25-c125-425c-8343-00c31840100b",
       "name": "Call FastAPI - Approve1",
+      "continueOnFail": true,
       "credentials": {
         "httpHeaderAuth": {
           "id": "TOHb5gtGbJGkI8It",
@@ -199,8 +201,10 @@
     {
       "parameters": {
         "chatId": "={{ $('Filter New Updates1').item.json.callback_query.message.chat.id }}",
-        "text": "={{ $json.status === 'sent' ? '✅ Email inviata.' : '🚫 Email rifiutata.' }}",
-        "additionalFields": {}
+        "text": "={{ ($json.status === 'sent' ? '✅ <b>Email inviata</b>' : '🚫 <b>Email rifiutata</b>') + '\\n\\n<b>[ID: ' + $json.id + ']</b>' }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
       },
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
@@ -250,11 +254,11 @@
         560
       ],
       "id": "c313fe0c-b388-4538-874f-bd728b16095c",
-      "name": "Is Tip Reply1"
+      "name": "Is Draft Reply1"
     },
     {
       "parameters": {
-        "jsCode": "// id is embedded in the draft message as \"[ID: <id>]\"\nconst item = $('Filter New Updates1').item.json;\nconst originalText = item.message.reply_to_message.text || '';\nconst match = originalText.match(/\\[ID: (\\d+)\\]/);\nconst emailId = match ? match[1] : null;\n\nconst tip = (item.message.text || '').trim();\n\nreturn [{ json: { id: emailId, notes: tip } }];"
+        "jsCode": "// id is embedded in the replied-to draft message as \"[ID: <id>]\" - the\n// admin replies directly to the draft, no separate prompt message needed.\nconst item = $('Filter New Updates1').item.json;\nconst originalText = item.message.reply_to_message.text || '';\nconst match = originalText.match(/\\[ID: (\\d+)\\]/);\nconst emailId = match ? match[1] : null;\n\nconst tip = (item.message.text || '').trim();\n// a bare \"-\" (or nothing) means: regenerate, no specific instructions\nconst notes = /^[-.\\s]*$/.test(tip) ? '' : tip;\n\nreturn [{ json: { id: emailId, notes } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -284,6 +288,7 @@
       ],
       "id": "61f357b5-3331-4628-9370-06aef92dc8cf",
       "name": "Call FastAPI - Approve (Tip)1",
+      "continueOnFail": true,
       "credentials": {
         "httpHeaderAuth": {
           "id": "TOHb5gtGbJGkI8It",
@@ -295,8 +300,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1560,
-        400
+        1344,
+        560
       ],
       "id": "9c6a0e79-45a0-476b-9556-f11d71f50a4f",
       "name": "Send Regenerated Approval Message",
@@ -305,25 +310,7 @@
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($('Filter New Updates1').item.json.callback_query?.message?.chat?.id ?? $('Filter New Updates1').item.json.message.chat.id) }},\n  \"text\": {{ JSON.stringify(\n      \"Bozza rigenerata\\n\\n\" +\n      \"Categoria: \" + $json.category + \"\\n\\n\" +\n      \"Bozza di risposta:\\n\" + $json.draft + \"\\n\\n[ID: \" + $json.id + \"]\"\n  ) }},\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"🚫 Refuse\", \"callback_data\": \"{{ $json.id }}:refuse\"},\n      {\"text\": \"🔄 Regenerate\", \"callback_data\": \"{{ $json.id }}:regenerate\"}\n    ]]\n  }\n}",
-        "options": {}
-      }
-    },
-    {
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        800,
-        120
-      ],
-      "id": "661212b7-0f08-46b0-9c6e-6edad05d4f7b",
-      "name": "Send Reply Prompt",
-      "parameters": {
-        "method": "POST",
-        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $json.result.chat.id }},\n  \"text\": {{ JSON.stringify(\"💬 Rispondi a questo messaggio con le tue indicazioni per rigenerare la bozza. \" + $json.result.text.match(/\\[ID: \\d+\\]/)[0]) }},\n  \"reply_markup\": {\n    \"force_reply\": true,\n    \"input_field_placeholder\": \"Indicazioni per rigenerare…\"\n  }\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify($('Filter New Updates1').item.json.message.chat.id) }},\n  \"text\": {{ JSON.stringify(\n      (function(){\n        const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\n        return '🔄 <b>Bozza rigenerata</b>\\n\\n' +\n          '🏷️ <b>Categoria:</b> ' + esc($json.category) + '\\n\\n' +\n          '✉️ <b>Bozza di risposta:</b>\\n' + esc($json.draft) + '\\n\\n' +\n          '✏️ Per modificare, rispondi a questo messaggio con le tue indicazioni (o con \"-\" per rigenerare senza indicazioni specifiche).\\n\\n' +\n          '<b>[ID: ' + $json.id + ']</b>';\n      })()\n  ) }},\n  \"parse_mode\": \"HTML\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Approve\", \"callback_data\": \"{{ $json.id }}:approve\"},\n      {\"text\": \"🚫 Refuse\", \"callback_data\": \"{{ $json.id }}:refuse\"}\n    ]]\n  }\n}",
         "options": {}
       }
     },
@@ -341,14 +328,6 @@
       }
     },
     {
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        1320,
-        256
-      ],
-      "id": "bf08c137-14ce-4359-b5a0-853d0fa90233",
-      "name": "Is Draft Pending1",
       "parameters": {
         "conditions": {
           "options": {
@@ -359,19 +338,107 @@
           },
           "conditions": [
             {
-              "id": "76bd07e3-9b6b-4ba1-85dd-f2e99390a9a7",
-              "leftValue": "={{ $json.status }}",
-              "rightValue": "pending",
+              "id": "1a6e9f3a-1a2b-4c3d-9e5f-6a7b8c9d0e1f",
+              "leftValue": "={{ $json.error ? String($json.error) : '' }}",
+              "rightValue": "",
               "operator": {
                 "type": "string",
-                "operation": "equals",
-                "name": "filter.operator.equals"
+                "operation": "notEmpty",
+                "name": "filter.operator.notEmpty"
               }
             }
           ],
           "combinator": "and"
         },
         "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        336
+      ],
+      "id": "2b9c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e",
+      "name": "Already Handled1"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Filter New Updates1').item.json.callback_query.message.chat.id }}",
+        "text": "⚠️ <b>Email già gestita</b>\nNessuna nuova azione applicata (già inviata o rifiutata).",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        420
+      ],
+      "id": "3c0d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+      "name": "Send Already Handled1",
+      "credentials": {
+        "telegramApi": {
+          "id": "8EiuVyHAME8bxi3U",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4d1e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a",
+              "leftValue": "={{ $json.error ? String($json.error) : '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        640
+      ],
+      "id": "5e2f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b",
+      "name": "Already Handled2"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Filter New Updates1').item.json.message.chat.id }}",
+        "text": "⚠️ <b>Email già gestita</b>\nNessuna nuova azione applicata (già inviata o rifiutata).",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        720
+      ],
+      "id": "6f3a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c",
+      "name": "Send Already Handled2",
+      "credentials": {
+        "telegramApi": {
+          "id": "8EiuVyHAME8bxi3U",
+          "name": "Telegram account"
+        }
       }
     }
   ],
@@ -443,7 +510,7 @@
         ],
         [
           {
-            "node": "Is Tip Reply1",
+            "node": "Is Draft Reply1",
             "type": "main",
             "index": 0
           }
@@ -465,14 +532,32 @@
       "main": [
         [
           {
-            "node": "Is Draft Pending1",
+            "node": "Already Handled1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Is Tip Reply1": {
+    "Already Handled1": {
+      "main": [
+        [
+          {
+            "node": "Send Already Handled1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Confirmation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Draft Reply1": {
       "main": [
         [
           {
@@ -499,6 +584,24 @@
       "main": [
         [
           {
+            "node": "Already Handled2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Handled2": {
+      "main": [
+        [
+          {
+            "node": "Send Already Handled2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Send Regenerated Approval Message",
             "type": "main",
             "index": 0
@@ -511,35 +614,6 @@
         [
           {
             "node": "Get Telegram Updates1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Is Draft Pending1": {
-      "main": [
-        [
-          {
-            "node": "Send Regenerated Approval Message",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Send Confirmation1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send Regenerated Approval Message": {
-      "main": [
-        [
-          {
-            "node": "Send Reply Prompt",
             "type": "main",
             "index": 0
           }
