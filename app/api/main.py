@@ -78,7 +78,7 @@ class IncomingEmail(BaseModel):
     body: str
 
 
-DEFAULT_REGENERATE_NOTE = "Il revisore umano ha richiesto una versione diversa."
+DEFAULT_REGENERATE_NOTE = "Nessuna indicazione specifica: proponi una variante alternativa del testo, con un taglio leggermente diverso ma ugualmente professionale."
 
 
 class ApproveRequest(BaseModel):

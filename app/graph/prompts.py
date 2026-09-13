@@ -61,8 +61,13 @@ Bozza precedente da correggere:
 {review_notes}
 === FINE INDICAZIONI DEL REVISORE ===
 
-Riscrivi la bozza applicando le indicazioni qui sopra, conservando ciò che già va bene.
-Scrivi solo il corpo della risposta email, senza oggetto e senza firma."""
+Riscrivi la bozza applicando le indicazioni qui sopra, conservando ciò che già va bene. Se
+le indicazioni sono generiche o poco specifiche, limitati a proporre una variante alternativa
+del testo - non commentarle e non chiedere indicazioni più precise.
+
+Scrivi ESCLUSIVAMENTE il corpo della risposta email indirizzata al cliente: niente oggetto,
+niente firma, niente premesse o note rivolte al revisore. Il destinatario di questa risposta
+è il cliente, non il revisore."""
 
 
 REVIEW_PROMPT = """Valuta la bozza di risposta email seguente su una scala da 1 a 10,

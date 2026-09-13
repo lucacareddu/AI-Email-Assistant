@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.api.main import app
+from app.api.main import DEFAULT_REGENERATE_NOTE, app
 from app.services.database import create_email
 
 HEADERS = {"X-Webhook-Token": "test-webhook-token"}
@@ -117,7 +117,7 @@ def test_regenerate_without_notes_uses_default_review_notes():
         client.post("/approve", json={"id": record["id"], "action": "regenerate"}, headers=HEADERS)
 
         sent_state = mock_invoke.call_args.args[0]
-        assert sent_state["review_notes"] == "Il revisore umano ha richiesto una versione diversa."
+        assert sent_state["review_notes"] == DEFAULT_REGENERATE_NOTE
 
 
 def test_regenerate_with_admin_tip_passes_it_as_review_notes():
@@ -145,7 +145,7 @@ def test_regenerate_with_blank_notes_falls_back_to_default():
         )
 
         sent_state = mock_invoke.call_args.args[0]
-        assert sent_state["review_notes"] == "Il revisore umano ha richiesto una versione diversa."
+        assert sent_state["review_notes"] == DEFAULT_REGENERATE_NOTE
 
 
 def test_approve_unknown_action_returns_400():
