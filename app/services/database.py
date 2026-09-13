@@ -22,6 +22,8 @@ if settings.use_postgres:
         sender = Column(String, nullable=False)
         subject = Column(String, nullable=False)
         body = Column(Text, nullable=False)
+        message_id = Column(String)  # original Gmail Message-ID header, for In-Reply-To/References
+        thread_id = Column(String)  # original Gmail threadId, so the reply lands in the same thread
 
         summary = Column(Text)
         category = Column(String)
@@ -45,6 +47,8 @@ if settings.use_postgres:
             "sender": email.sender,
             "subject": email.subject,
             "body": email.body,
+            "message_id": email.message_id,
+            "thread_id": email.thread_id,
             "summary": email.summary,
             "category": email.category,
             "draft": email.draft,
@@ -52,9 +56,9 @@ if settings.use_postgres:
             "status": email.status,
         }
 
-    def create_email(sender: str, subject: str, body: str) -> dict:
+    def create_email(sender: str, subject: str, body: str, message_id: str | None = None, thread_id: str | None = None) -> dict:
         with SessionLocal() as session:
-            email = Email(sender=sender, subject=subject, body=body)
+            email = Email(sender=sender, subject=subject, body=body, message_id=message_id, thread_id=thread_id)
             session.add(email)
             session.commit()
             session.refresh(email)
@@ -85,13 +89,15 @@ else:
     def init_db():
         pass
 
-    def create_email(sender: str, subject: str, body: str) -> dict:
+    def create_email(sender: str, subject: str, body: str, message_id: str | None = None, thread_id: str | None = None) -> dict:
         email_id = next(_id_counter)
         record = {
             "id": email_id,
             "sender": sender,
             "subject": subject,
             "body": body,
+            "message_id": message_id,
+            "thread_id": thread_id,
             "summary": None,
             "category": None,
             "draft": None,

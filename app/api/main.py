@@ -76,6 +76,8 @@ class IncomingEmail(BaseModel):
     sender: str
     subject: str
     body: str
+    message_id: Optional[str] = None  # original Gmail Message-ID header, for In-Reply-To/References
+    thread_id: Optional[str] = None  # original Gmail threadId, so the reply lands in the same thread
 
 
 DEFAULT_REGENERATE_NOTE = "Nessuna indicazione specifica: proponi una variante alternativa del testo, con un taglio leggermente diverso ma ugualmente professionale."
@@ -101,7 +103,10 @@ def handle_email(
         request.client.host if request.client else "unknown", payload.sender, payload.subject,
     )
 
-    record = create_email(sender=payload.sender, subject=payload.subject, body=payload.body)
+    record = create_email(
+        sender=payload.sender, subject=payload.subject, body=payload.body,
+        message_id=payload.message_id, thread_id=payload.thread_id,
+    )
 
     result = email_graph.invoke(
         {
@@ -153,7 +158,10 @@ def handle_approval(
         raise HTTPException(status_code=409, detail=f"Email is already {record['status']}")
 
     if payload.action == "approve":
-        send_reply(to=record["sender"], subject=record["subject"], body=record["draft"])
+        send_reply(
+            to=record["sender"], subject=record["subject"], body=record["draft"],
+            message_id=record.get("message_id"), thread_id=record.get("thread_id"),
+        )
         record = update_email(payload.id, status="sent")
         _remember(record)
         logger.info("[email %s] reply sent via Gmail API", payload.id)

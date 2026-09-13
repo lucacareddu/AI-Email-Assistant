@@ -53,6 +53,21 @@ def test_approve_action_sends_via_gmail_and_marks_sent():
         mock_send.assert_called_once()
 
 
+def test_approve_action_sends_reply_threaded_into_original_message():
+    record = create_email(
+        sender="a@b.com", subject="hi", body="hello",
+        message_id="<orig@example.com>", thread_id="thread-123",
+    )
+
+    with TestClient(app) as client, patch("app.api.main.send_reply") as mock_send:
+        client.post("/approve", json={"id": record["id"], "action": "approve"}, headers=HEADERS)
+
+        mock_send.assert_called_once_with(
+            to="a@b.com", subject="hi", body=None,
+            message_id="<orig@example.com>", thread_id="thread-123",
+        )
+
+
 def test_approve_action_refuses_and_marks_refused():
     record = create_email(sender="a@b.com", subject="hi", body="hello")
 

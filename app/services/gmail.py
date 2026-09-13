@@ -18,12 +18,21 @@ def _client():
     return build("gmail", "v1", credentials=creds)
 
 
-def send_reply(to: str, subject: str, body: str) -> str:
+def send_reply(to: str, subject: str, body: str, message_id: str | None = None, thread_id: str | None = None) -> str:
+    """message_id/thread_id (from the original Gmail message) thread the reply into the
+    existing conversation instead of landing as a new, unrelated email."""
     message = MIMEText(body)
     message["to"] = to
     message["from"] = settings.gmail_sender
-    message["subject"] = f"Re: {subject}"
+    message["subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+    if message_id:
+        message["In-Reply-To"] = message_id
+        message["References"] = message_id
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    result = _client().users().messages().send(userId="me", body={"raw": raw}).execute()
+    send_body = {"raw": raw}
+    if thread_id:
+        send_body["threadId"] = thread_id
+
+    result = _client().users().messages().send(userId="me", body=send_body).execute()
     return result["id"]
