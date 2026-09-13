@@ -148,6 +148,24 @@ def test_regenerate_with_blank_notes_falls_back_to_default():
         assert sent_state["review_notes"] == DEFAULT_REGENERATE_NOTE
 
 
+def test_approve_action_after_already_sent_returns_409():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+
+    with TestClient(app) as client, patch("app.api.main.send_reply"):
+        client.post("/approve", json={"id": record["id"], "action": "approve"}, headers=HEADERS)
+        r = client.post("/approve", json={"id": record["id"], "action": "refuse"}, headers=HEADERS)
+        assert r.status_code == 409
+
+
+def test_regenerate_after_already_refused_returns_409():
+    record = create_email(sender="a@b.com", subject="hi", body="hello")
+
+    with TestClient(app) as client:
+        client.post("/approve", json={"id": record["id"], "action": "refuse"}, headers=HEADERS)
+        r = client.post("/approve", json={"id": record["id"], "action": "regenerate"}, headers=HEADERS)
+        assert r.status_code == 409
+
+
 def test_approve_unknown_action_returns_400():
     record = create_email(sender="a@b.com", subject="hi", body="hello")
 

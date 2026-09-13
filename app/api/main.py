@@ -145,6 +145,13 @@ def handle_approval(
         logger.warning("/approve referenced unknown email id=%s", payload.id)
         raise HTTPException(status_code=404, detail="Email not found")
 
+    if record["status"] in ("sent", "refused"):
+        logger.warning(
+            "/approve got action=%s for id=%s but it's already %s, ignoring",
+            payload.action, payload.id, record["status"],
+        )
+        raise HTTPException(status_code=409, detail=f"Email is already {record['status']}")
+
     if payload.action == "approve":
         send_reply(to=record["sender"], subject=record["subject"], body=record["draft"])
         record = update_email(payload.id, status="sent")
