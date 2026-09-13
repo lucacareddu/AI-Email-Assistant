@@ -9,7 +9,7 @@ thing is glued together with **n8n**.
 Gmail ──(n8n: Workflow 1)──▶ FastAPI ──▶ LangGraph (summarize_and_classify → recall → retrieve → generate → review)
                                                                                   │
                                                                                   ▼
-                                                          Telegram message (Approve / Refuse / Regenerate)
+                                                          Telegram message (Approve / Refuse, or just reply to edit)
                                                                                   │
                                                                                   ▼
                                               n8n: Workflow 2 ──▶ FastAPI ──▶ Gmail API (send) / Postgres
@@ -78,7 +78,7 @@ Looking at `My workflow.json`, two patterns were clear and I kept them:
    reprocessed on the next 5s poll. **This means Workflow 2 must be Active**: static
    data isn't persisted for manual "Test workflow" runs, so in test mode the same
    update replays every poll.
-3. **Inline keyboards (Approve/Refuse/Regenerate) are sent via a raw HTTP Request to
+3. **Inline keyboards (Approve/Refuse) are sent via a raw HTTP Request to
    Telegram's `sendMessage` endpoint**, not the native Telegram node. This isn't just
    following your preference — n8n's Telegram node has known issues with dynamically
    built inline keyboards (expressions get serialized as strings instead of arrays),
@@ -194,21 +194,26 @@ Plus two n8n **credentials**:
 - **Gmail OAuth2** (`Gmail account`) — used only by the Gmail Trigger in Workflow 1 to
   *watch* the inbox (the actual *send* happens in FastAPI, not n8n).
 
-**The approval loop iterates until a terminal choice.** Every regeneration (button or
-reply-with-tips) posts the new draft back to Telegram as a fresh approval message,
-with the same 3-button keyboard and `[ID: ...]` marker, so it can be approved,
-refused or regenerated again - as many rounds as needed. Only ✅ Approve (sends the
-email via the Gmail API) and 🚫 Refuse (drops it, never answered) are terminal; both
-write the sender-memory entry once, at that point.
+**The approval loop iterates until a terminal choice.** Every regeneration posts the
+new draft back to Telegram as a fresh approval message with the same 2-button
+keyboard and `[ID: ...]` marker, so it can be approved, refused, or edited again -
+as many rounds as needed. Only ✅ Approve (sends the email via the Gmail API) and
+🚫 Refuse (drops it, never answered) are terminal; both write the sender-memory
+entry once, at that point. `/approve` rejects (409) any further approve/refuse/
+regenerate call for an email already `sent` or `refused` - Telegram doesn't
+remove old buttons or block replies to old messages, so this guard is what
+actually stops a stale tap or reply from re-triggering the Gmail send or the
+graph after the email's been dealt with. n8n shows a "già gestita" notice back
+to the admin in that case instead of failing silently.
 
-**Regenerate with admin tips:** tapping 🔄 Regenerate regenerates immediately with
-the default review note. To steer it, reply to the draft message with free-text tips -
-the initial draft says so in its text; every *regenerated* draft is additionally
-followed by a short `force_reply` prompt (input box opens pre-focused) so the next
-round needs no long-press. Either way the reply is forwarded as `notes` on `/approve`
-and used as that regeneration's reviewer note; the `[ID: ...]` marker in the message
-being replied to traces it back to the email with no extra state. The prompt is a
-separate message because `force_reply` and an inline keyboard can't share one.
+**Editing a draft: no button, just reply.** There's no Regenerate button - to
+adjust a draft, reply directly to the Telegram message with free-text tips (or
+`-` for "regenerate with no specific instructions"). n8n matches the reply
+against `[ID: ...]` in the original message's text (`Is Draft Reply1` /
+`Extract Regenerate Tip1`) and forwards it as `notes` on `/approve`, which
+re-runs the graph and posts the new draft back the same way. No force-reply
+prompt, no extra tap-then-reply round trip - one message in, one LLM call, one
+new draft out.
 
 ## Docker (optional)
 
